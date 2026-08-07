@@ -11,7 +11,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  schemas  = ["public", "hsds", "import_audit"]
 }
 
 model User {
@@ -30,8 +29,6 @@ model User {
   revokedInvites         Invite[]  @relation("RevokedByUser")
   updatedAt              DateTime  @updatedAt
   createdAt              DateTime  @default(now())
-
-  @@schema("public")
 }
 
 model Invite {
@@ -50,8 +47,6 @@ model Invite {
   revokedAt    DateTime?
   revokedBy    User?     @relation("RevokedByUser", fields: [revokedById], references: [id])
   revokedById  String?   @db.Uuid
-
-  @@schema("public")
 }
 
 enum ServiceStatus {
@@ -59,16 +54,12 @@ enum ServiceStatus {
   inactive
   defunct
   temporarilyClosed @map("temporarily closed")
-
-  @@schema("hsds")
 }
 
 enum LocationType {
   physical
   postal
   virtual
-
-  @@schema("hsds")
 }
 
 model Organization {
@@ -97,7 +88,6 @@ model Organization {
   additionalWebsites   Url[]
 
   @@map("organizations")
-  @@schema("hsds")
 }
 
 model Program {
@@ -111,7 +101,6 @@ model Program {
 
   @@index([organizationId])
   @@map("programs")
-  @@schema("hsds")
 }
 
 model Service {
@@ -157,7 +146,6 @@ model Service {
   @@index([status])
   @@index([lastModified])
   @@map("services")
-  @@schema("hsds")
 }
 
 model ServiceAtLocation {
@@ -174,7 +162,6 @@ model ServiceAtLocation {
 
   @@unique([serviceId, locationId])
   @@map("service_at_locations")
-  @@schema("hsds")
 }
 
 model Location {
@@ -201,7 +188,6 @@ model Location {
 
   @@index([organizationId])
   @@map("locations")
-  @@schema("hsds")
 }
 
 model Phone {
@@ -226,7 +212,6 @@ model Phone {
   @@index([serviceId])
   @@index([organizationId])
   @@map("phones")
-  @@schema("hsds")
 }
 
 model Contact {
@@ -248,7 +233,6 @@ model Contact {
   @@index([organizationId])
   @@index([serviceId])
   @@map("contacts")
-  @@schema("hsds")
 }
 
 model Address {
@@ -267,7 +251,6 @@ model Address {
 
   @@index([locationId])
   @@map("addresses")
-  @@schema("hsds")
 }
 
 model Schedule {
@@ -301,7 +284,6 @@ model Schedule {
   @@index([serviceId])
   @@index([locationId])
   @@map("schedules")
-  @@schema("hsds")
 }
 
 model Funding {
@@ -315,7 +297,6 @@ model Funding {
   @@index([organizationId])
   @@index([serviceId])
   @@map("funding")
-  @@schema("hsds")
 }
 
 model ServiceArea {
@@ -332,7 +313,6 @@ model ServiceArea {
 
   @@index([serviceId])
   @@map("service_areas")
-  @@schema("hsds")
 }
 
 model Language {
@@ -350,7 +330,6 @@ model Language {
   @@index([serviceId])
   @@index([locationId])
   @@map("languages")
-  @@schema("hsds")
 }
 
 model Accessibility {
@@ -362,7 +341,6 @@ model Accessibility {
 
   @@index([locationId])
   @@map("accessibility")
-  @@schema("hsds")
 }
 
 model RequiredDocument {
@@ -374,7 +352,6 @@ model RequiredDocument {
 
   @@index([serviceId])
   @@map("required_documents")
-  @@schema("hsds")
 }
 
 model Taxonomy {
@@ -386,7 +363,6 @@ model Taxonomy {
   terms       TaxonomyTerm[]
 
   @@map("taxonomies")
-  @@schema("hsds")
 }
 
 model TaxonomyTerm {
@@ -407,7 +383,6 @@ model TaxonomyTerm {
   @@index([taxonomyId])
   @@index([parentId])
   @@map("taxonomy_terms")
-  @@schema("hsds")
 }
 
 model Attribute {
@@ -423,7 +398,6 @@ model Attribute {
   @@index([linkEntity, linkId])
   @@index([taxonomyTermId])
   @@map("attributes")
-  @@schema("hsds")
 }
 
 model Metadata {
@@ -439,7 +413,6 @@ model Metadata {
 
   @@index([resourceType, resourceId])
   @@map("metadata")
-  @@schema("hsds")
 }
 
 model MetaTableDescription {
@@ -449,7 +422,6 @@ model MetaTableDescription {
   characterSet String? @map("character_set")
 
   @@map("meta_table_descriptions")
-  @@schema("hsds")
 }
 
 model CostOption {
@@ -465,7 +437,6 @@ model CostOption {
 
   @@index([serviceId])
   @@map("cost_options")
-  @@schema("hsds")
 }
 
 model OrganizationIdentifier {
@@ -478,7 +449,6 @@ model OrganizationIdentifier {
 
   @@index([organizationId])
   @@map("organization_identifiers")
-  @@schema("hsds")
 }
 
 model ServiceCapacity {
@@ -495,7 +465,6 @@ model ServiceCapacity {
   @@index([serviceId])
   @@index([unitId])
   @@map("service_capacity")
-  @@schema("hsds")
 }
 
 model Unit {
@@ -507,7 +476,6 @@ model Unit {
   capacities ServiceCapacity[]
 
   @@map("units")
-  @@schema("hsds")
 }
 
 model Url {
@@ -522,66 +490,4 @@ model Url {
   @@index([organizationId])
   @@index([serviceId])
   @@map("urls")
-  @@schema("hsds")
-}
-
-model ImportRun {
-  id            String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  source        String
-  status        String
-  startedAt     DateTime       @default(now()) @map("started_at")
-  completedAt   DateTime?      @map("completed_at")
-  summary       Json?
-  sourceRecords SourceRecord[]
-  issues        ImportIssue[]
-
-  @@map("import_runs")
-  @@schema("import_audit")
-}
-
-model SourceRecord {
-  id          String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  importRunId String          @map("import_run_id") @db.Uuid
-  sourceTable String          @map("source_table")
-  sourceKey   String          @map("source_key")
-  payload     Json
-  checksum    String
-  importRun   ImportRun       @relation(fields: [importRunId], references: [id], onDelete: Cascade)
-  mappings    SourceMapping[]
-
-  @@unique([importRunId, sourceTable, sourceKey])
-  @@index([sourceTable, sourceKey])
-  @@map("source_records")
-  @@schema("import_audit")
-}
-
-model SourceMapping {
-  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  sourceRecordId String       @map("source_record_id") @db.Uuid
-  targetType     String       @map("target_type")
-  targetId       String       @map("target_id") @db.Uuid
-  rule           String?
-  sourceRecord   SourceRecord @relation(fields: [sourceRecordId], references: [id], onDelete: Cascade)
-
-  @@unique([sourceRecordId, targetType, targetId])
-  @@index([targetType, targetId])
-  @@map("source_mappings")
-  @@schema("import_audit")
-}
-
-model ImportIssue {
-  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  importRunId String    @map("import_run_id") @db.Uuid
-  sourceTable String?   @map("source_table")
-  sourceKey   String?   @map("source_key")
-  field       String?
-  code        String
-  message     String
-  details     Json?
-  createdAt   DateTime  @default(now()) @map("created_at")
-  importRun   ImportRun @relation(fields: [importRunId], references: [id], onDelete: Cascade)
-
-  @@index([importRunId])
-  @@map("import_issues")
-  @@schema("import_audit")
 }
