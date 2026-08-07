@@ -360,7 +360,7 @@ export function serializeTaxonomy (taxonomy) {
   });
 }
 
-export function serializeTaxonomyTerm (term) {
+export function serializeTaxonomyTerm (term, { attributes } = {}) {
   return compact({
     id: term.id,
     code: term.code,
@@ -371,6 +371,7 @@ export function serializeTaxonomyTerm (term) {
     taxonomy_detail: term.taxonomyDetail && serializeTaxonomy(term.taxonomyDetail),
     language: term.language,
     taxonomy_id: term.taxonomyId,
-    term_uri: term.termUri
+    term_uri: term.termUri,
+    attributes: attributes?.map(serializeAttribute)
   });
 }

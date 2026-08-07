@@ -1,6 +1,7 @@
 import { StatusCodes } from 'http-status-codes';
 import { z } from 'zod';
 
+import { attributesFor } from '#lib/hsds-query.js';
 import {
   EntitySchema,
   IdParamsSchema,
@@ -70,6 +71,7 @@ export default async function (fastify) {
       include: { taxonomyDetail: true }
     });
     if (!term) return reply.code(StatusCodes.NOT_FOUND).send();
-    return serializeTaxonomyTerm(term);
+    const attributes = await attributesFor(fastify.prisma, 'taxonomy_term', term.id);
+    return serializeTaxonomyTerm(term, { attributes });
   });
 }

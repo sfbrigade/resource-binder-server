@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert';
 
-import { pageResponse, serializeService } from '#models/hsds.js';
+import { pageResponse, serializeService, serializeTaxonomyTerm } from '#models/hsds.js';
 
 test('HSDS serializers', async (t) => {
   await t.test('uses HSDS field names and enum values without inventing null data', () => {
@@ -35,5 +35,25 @@ test('HSDS serializers', async (t) => {
       empty: false,
       contents: [{ id: 'one' }]
     });
+  });
+
+  await t.test('exposes taxonomy-term legacy relationships as standard attributes', () => {
+    const term = serializeTaxonomyTerm({
+      id: '7abfcd33-25af-4c69-8309-b41c7bd8df9f',
+      name: 'Re-entry',
+      description: 'Re-entry'
+    }, {
+      attributes: [{
+        id: 'a2f87ed6-a885-449c-b9bc-bbc587bcf8e9',
+        linkId: '7abfcd33-25af-4c69-8309-b41c7bd8df9f',
+        linkType: 'additional_parent',
+        linkEntity: 'taxonomy_term',
+        value: '570d287a-4f0f-4315-b9ae-e68ddfdd4bfb',
+        label: 'ShelterTech parent term'
+      }]
+    });
+
+    assert.equal(term.attributes[0].link_type, 'additional_parent');
+    assert.equal(term.attributes[0].value, '570d287a-4f0f-4315-b9ae-e68ddfdd4bfb');
   });
 });
