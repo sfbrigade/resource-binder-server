@@ -23,15 +23,14 @@ Run the test cases.
 
 The PostgreSQL `public` schema contains both the existing application tables and the normalized Open Referral HSDS 3.2.3 tables. ShelterTech source data is converted into HSDS records; raw source rows are not copied into the operational database.
 
-Apply migrations, then import a ShelterTech PostgreSQL seed dump:
+Apply migrations, then import the checked-in ShelterTech PostgreSQL seed dump (`db/seed.sql`):
 
 ```sh
 export DATABASE_URL=postgresql://...
-export SHELTERTECH_SEED_PATH=/absolute/path/to/seed.sql
 npm run --silent import:sheltertech > conversion-report.json
 ```
 
-The importer reads only its explicit allowlist of 33 ShelterTech public-directory tables. It rejects changed or unsupported source data, requires empty canonical tables, and writes deterministic HSDS records in one transaction. Its JSON output is the external conversion report; save it beside the immutable source dump. A failed conversion prints a failed report, exits nonzero, and leaves canonical data unchanged. A future dump is converted into a fresh dataset rather than synchronized incrementally.
+Override the default dump with a CLI path or `SHELTERTECH_SEED_PATH` if needed. The importer reads only its explicit allowlist of 33 ShelterTech public-directory tables. It rejects changed or unsupported source data, requires empty canonical tables, and writes deterministic HSDS records in one transaction. Its JSON output is the external conversion report; save it beside the immutable source dump. A failed conversion prints a failed report, exits nonzero, and leaves canonical data unchanged. A future dump is converted into a fresh dataset rather than synchronized incrementally.
 
 Read-only HSDS JSON is available at:
 
