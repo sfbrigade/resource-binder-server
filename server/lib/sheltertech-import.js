@@ -228,10 +228,13 @@ export function formatStructuredTime (value) {
 }
 
 export function parsePhone (number, serviceType) {
+  if (number === null || number === undefined || number === '') return null;
   const extension = String(number).match(/^(.*?);ext=(\d+)$/i);
+  const parsedNumber = extension ? extension[1] : number;
+  if (parsedNumber === '') return null;
   const kind = String(serviceType ?? '').toLowerCase();
   return {
-    number: extension ? extension[1] : number,
+    number: parsedNumber,
     extension: extension ? Number(extension[2]) : null,
     type: kind.includes('fax')
       ? 'fax'
@@ -299,7 +302,16 @@ function validateSourceData (tables) {
     ref('services', row, 'funding_id', 'fundings');
     ref('services', row, 'boosted_category_id', 'categories');
   }
-  for (const row of tables.get('addresses')) ref('addresses', row, 'resource_id', 'resources', true);
+  for (const row of tables.get('addresses')) {
+    ref('addresses', row, 'resource_id', 'resources', true);
+    if (!truthy(row.online)) {
+      for (const field of ['address_1', 'city', 'state_province', 'postal_code']) {
+        if (!text(row[field])) {
+          issues.push(issue('addresses', row.id, field, 'MISSING_REQUIRED_VALUE', `Address ${field} is required for physical locations`));
+        }
+      }
+    }
+  }
   for (const row of tables.get('contacts')) {
     ref('contacts', row, 'resource_id', 'resources');
     ref('contacts', row, 'service_id', 'services');
@@ -309,6 +321,9 @@ function validateSourceData (tables) {
     ref('phones', row, 'service_id', 'services');
     ref('phones', row, 'contact_id', 'contacts');
     ref('phones', row, 'language_id', 'languages');
+    if (parsePhone(row.number, row.service_type) == null) {
+      issues.push(issue('phones', row.id, 'number', 'MISSING_REQUIRED_VALUE', 'Phone number is required'));
+    }
   }
   for (const row of tables.get('addresses_services')) {
     ref('addresses_services', row, 'service_id', 'services', true);
@@ -356,6 +371,9 @@ function validateSourceData (tables) {
   }
   for (const row of tables.get('schedule_days')) {
     ref('schedule_days', row, 'schedule_id', 'schedules', true);
+    if (row.day != null && !DAY_CODES[row.day]) {
+      issues.push(issue('schedule_days', row.id, 'day', 'INVALID_DAY', `Unrecognized day ${row.day}`));
+    }
     if (row.open_time != null && formatStructuredTime(row.open_time) == null) issues.push(issue('schedule_days', row.id, 'open_time', 'INVALID_TIME', `Invalid open_time ${row.open_time}`));
     if (row.close_time != null && formatStructuredTime(row.close_time) == null) issues.push(issue('schedule_days', row.id, 'close_time', 'INVALID_TIME', `Invalid close_time ${row.close_time}`));
     if (row.open_time == null && row.opens_at != null && formatLegacyTime(row.opens_at) == null) issues.push(issue('schedule_days', row.id, 'opens_at', 'INVALID_TIME', `Invalid opens_at ${row.opens_at}`));
@@ -409,6 +427,7 @@ async function importCanonical (tx, tables) {
   const services = tables.get('services');
   const addresses = tables.get('addresses');
   const addressesByResource = groupBy(addresses, 'resource_id');
+  const addressesById = indexById(addresses);
 
   for (const row of resources) {
     const id = sheltertechUuid('organization', row.id);
@@ -483,12 +502,12 @@ async function importCanonical (tx, tables) {
       id: addressId,
       locationId,
       attention: text(row.attention),
-      address1: row.address_1,
+      address1: text(row.address_1) ?? '',
       address2: text(row.address_2),
-      city: row.city,
+      city: text(row.city) ?? '',
       region: text(row.region),
-      stateProvince: row.state_province,
-      postalCode: row.postal_code,
+      stateProvince: text(row.state_province) ?? '',
+      postalCode: text(row.postal_code) ?? '',
       country: 'US',
       addressType: locationType
     });
@@ -531,7 +550,7 @@ async function importCanonical (tx, tables) {
   for (const service of services) {
     const explicit = explicitLocations.get(service.id);
     const serviceAddresses = explicit?.length
-      ? explicit.map((row) => indexById(addresses).get(row.address_id))
+      ? explicit.map((row) => addressesById.get(row.address_id))
       : addressesByResource.get(service.resource_id);
     for (const address of serviceAddresses) {
       const id = sheltertechUuid('service_at_location', `${service.id}:${address.id}`);
@@ -627,27 +646,32 @@ async function importCanonical (tx, tables) {
         row.parent_id,
         ...(parentsByChild.get(row.id) ?? []).map((entry) => entry.parent_id)
       ].filter(Boolean))];
+      if (!parents.length) continue;
+
       const childId = sheltertechUuid(`${entity}_term`, row.id);
-      if (parents.length === 1) {
-        await tx.taxonomyTerm.update({ where: { id: childId }, data: { parentId: sheltertechUuid(`${entity}_term`, parents[0]) } });
-        for (const relationship of parentsByChild.get(row.id) ?? []) {
-          record(mapping(relationshipTable, sourceKey(relationship), 'taxonomy_term', childId, 'taxonomy_term_parent'));
-        }
-      } else if (parents.length > 1) {
-        for (const parent of parents) {
-          const relationship = (parentsByChild.get(row.id) ?? []).find((entry) => entry.parent_id === parent);
-          await addAttribute({
-            sourceTable: relationshipTable,
-            key: relationship ? sourceKey(relationship) : `${parent}:${row.id}`,
-            entity: 'taxonomy_term',
-            linkId: childId,
-            termId: legacyTermIds.additional_parent,
-            linkType: 'additional_parent',
-            value: sheltertechUuid(`${entity}_term`, parent),
-            label: 'ShelterTech parent term',
-            rule: 'ambiguous_taxonomy_parent'
-          });
-        }
+      const [canonical, ...additional] = parents;
+      await tx.taxonomyTerm.update({
+        where: { id: childId },
+        data: { parentId: sheltertechUuid(`${entity}_term`, canonical) }
+      });
+      const canonicalRelationship = (parentsByChild.get(row.id) ?? []).find((entry) => entry.parent_id === canonical);
+      if (canonicalRelationship) {
+        record(mapping(relationshipTable, sourceKey(canonicalRelationship), 'taxonomy_term', childId, 'taxonomy_term_parent'));
+      }
+
+      for (const parent of additional) {
+        const relationship = (parentsByChild.get(row.id) ?? []).find((entry) => entry.parent_id === parent);
+        await addAttribute({
+          sourceTable: relationshipTable,
+          key: relationship ? sourceKey(relationship) : `${parent}:${row.id}`,
+          entity: 'taxonomy_term',
+          linkId: childId,
+          termId: legacyTermIds.additional_parent,
+          linkType: 'additional_parent',
+          value: sheltertechUuid(`${entity}_term`, parent),
+          label: 'ShelterTech parent term',
+          rule: 'ambiguous_taxonomy_parent'
+        });
       }
     }
   };

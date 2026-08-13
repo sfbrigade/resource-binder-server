@@ -161,7 +161,11 @@ test('ShelterTech canonical conversion', async (t) => {
       assert.equal(stores.attribute.filter(({ taxonomyTermId }) => taxonomyTermId === instructionTermId).length, 1);
       assert.equal(stores.attribute.filter(({ taxonomyTermId }) => taxonomyTermId === siteTermId).length, 1);
       assert.equal(stores.attribute.filter(({ linkType, value }) => linkType === 'legacy' && value === 'true').length, 6);
-      assert.equal(stores.attribute.filter(({ linkType }) => linkType === 'additional_parent').length, 2);
+      const reentry = stores.taxonomyTerm.find(({ id }) => id === sheltertechUuid('eligibility_term', '5'));
+      assert.equal(reentry.parentId, sheltertechUuid('eligibility_term', '7'));
+      const extraParents = stores.attribute.filter(({ linkType }) => linkType === 'additional_parent');
+      assert.equal(extraParents.length, 1);
+      assert.equal(extraParents[0].value, sheltertechUuid('eligibility_term', '12'));
       assert.equal(stores.service[0].alert, undefined);
       assert.equal(report.inferred_mappings.filter(({ rule }) => rule === 'organization_address_fallback').length, 1);
       assert.equal(report.inferred_mappings.filter(({ rule }) => rule === 'organization_schedule_to_location').length, 1);
@@ -171,6 +175,26 @@ test('ShelterTech canonical conversion', async (t) => {
   await t.test('rejects unknown statuses before opening a transaction', async (t) => {
     const rows = conversionFixture();
     rows.services[0].status = '2';
+    await withDump(t, rows, async (dumpPath) => {
+      const { prisma, transactionStarted } = mockPrisma();
+      await assert.rejects(importSheltertechDump(prisma, dumpPath), /preflight failed/);
+      assert.equal(transactionStarted(), false);
+    });
+  });
+
+  await t.test('rejects missing phone numbers before opening a transaction', async (t) => {
+    const rows = conversionFixture();
+    rows.phones[0].number = null;
+    await withDump(t, rows, async (dumpPath) => {
+      const { prisma, transactionStarted } = mockPrisma();
+      await assert.rejects(importSheltertechDump(prisma, dumpPath), /preflight failed/);
+      assert.equal(transactionStarted(), false);
+    });
+  });
+
+  await t.test('rejects unrecognized schedule days before opening a transaction', async (t) => {
+    const rows = conversionFixture();
+    rows.schedule_days[0].day = 'Funday';
     await withDump(t, rows, async (dumpPath) => {
       const { prisma, transactionStarted } = mockPrisma();
       await assert.rejects(importSheltertechDump(prisma, dumpPath), /preflight failed/);
@@ -210,6 +234,8 @@ test('ShelterTech conversion helpers and coverage', () => {
   assert.deepStrictEqual(parsePhone('+14155550100;ext=9', 'fax'), {
     number: '+14155550100', extension: 9, type: 'fax'
   });
+  assert.equal(parsePhone(null, 'voice'), null);
+  assert.equal(parsePhone('', 'voice'), null);
 
   const dispositions = fieldDispositions();
   assert.equal(dispositions.resources.internal_note, 'private');
