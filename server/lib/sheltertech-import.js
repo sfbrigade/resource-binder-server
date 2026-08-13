@@ -235,7 +235,7 @@ export function parsePhone (number, serviceType) {
   const kind = String(serviceType ?? '').toLowerCase();
   return {
     number: parsedNumber,
-    extension: extension ? Number(extension[2]) : null,
+    extension: extension ? extension[2] : null,
     type: kind.includes('fax')
       ? 'fax'
       : kind.includes('text') || kind.includes('sms')

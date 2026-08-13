@@ -78,7 +78,7 @@ function conversionFixture () {
     resources: [{ id: '1', name: 'Example Org', short_description: 'Organization description', status: '1', featured: 't' }],
     services: [{ id: '1', name: 'Example Service', short_description: 'Service description', resource_id: '1', status: '1', updated_at: '2026-08-06 12:00:00', featured: 't', boosted_category_id: '1' }],
     addresses: [{ id: '1', address_1: '1 Main St', city: 'San Francisco', state_province: 'CA', postal_code: '94103', resource_id: '1', online: 't', name: 'Online location' }],
-    phones: [{ id: '1', number: '+14155550100;ext=42', service_type: 'SMS', resource_id: '1' }],
+    phones: [{ id: '1', number: '+14155550100;ext=0967', service_type: 'SMS', resource_id: '1' }],
     categories: [{ id: '1', name: 'Shelter', top_level: 't', featured: 't' }],
     categories_resources: [{ category_id: '1', resource_id: '1' }],
     categories_services: [{ service_id: '1', category_id: '1', feature_rank: '2' }],
@@ -147,7 +147,7 @@ test('ShelterTech canonical conversion', async (t) => {
       assert.equal(stores.location[0].locationType, 'virtual');
       assert.equal(stores.address[0].addressType, 'virtual');
       assert.equal(stores.phone[0].number, '+14155550100');
-      assert.equal(stores.phone[0].extension, 42);
+      assert.equal(stores.phone[0].extension, '0967');
       assert.equal(stores.phone[0].type, 'text');
       assert.equal(stores.serviceAtLocation.length, 1);
       assert.equal(stores.schedule.length, 2);
@@ -232,7 +232,10 @@ test('ShelterTech conversion helpers and coverage', () => {
   assert.deepStrictEqual(formatLegacyTime('2360'), null);
   assert.deepStrictEqual(formatStructuredTime('09:30:15'), '09:30:15');
   assert.deepStrictEqual(parsePhone('+14155550100;ext=9', 'fax'), {
-    number: '+14155550100', extension: 9, type: 'fax'
+    number: '+14155550100', extension: '9', type: 'fax'
+  });
+  assert.deepStrictEqual(parsePhone('+14155550100;ext=0967', 'voice'), {
+    number: '+14155550100', extension: '0967', type: 'voice'
   });
   assert.equal(parsePhone(null, 'voice'), null);
   assert.equal(parsePhone('', 'voice'), null);

@@ -198,7 +198,7 @@ model Phone {
   contactId           String?            @map("contact_id") @db.Uuid
   serviceAtLocationId String?            @map("service_at_location_id") @db.Uuid
   number              String
-  extension           Int?
+  extension           String?
   type                String?
   description         String?
   location            Location?          @relation(fields: [locationId], references: [id])
