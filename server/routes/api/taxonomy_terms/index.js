@@ -1,7 +1,7 @@
 import { StatusCodes } from 'http-status-codes';
 import { z } from 'zod';
 
-import { attributesFor } from '#lib/hsds-query.js';
+import { attributesFor, attributesForMany, taxonomyTermParentWhere } from '#lib/hsds-query.js';
 import {
   EntitySchema,
   IdParamsSchema,
@@ -28,8 +28,7 @@ export default async function (fastify) {
     const query = request.query;
     const where = {
       ...(query.taxonomy_id ? { taxonomyId: query.taxonomy_id } : {}),
-      ...(query.parent_id ? { parentId: query.parent_id } : {}),
-      ...(query.top_only ? { parentId: null } : {}),
+      ...taxonomyTermParentWhere({ topOnly: query.top_only, parentId: query.parent_id }),
       ...(query.search
         ? {
             OR: [
@@ -50,12 +49,13 @@ export default async function (fastify) {
         take: query.per_page
       })
     ]);
+    const attributesByTerm = await attributesForMany(fastify.prisma, 'taxonomy_term', records.map(({ id }) => id));
     reply.setPaginationHeaders(query.page, query.per_page, total);
     return pageResponse({
       page: query.page,
       perPage: query.per_page,
       total,
-      contents: records.map(serializeTaxonomyTerm)
+      contents: records.map((term) => serializeTaxonomyTerm(term, { attributes: attributesByTerm.get(term.id) }))
     });
   });
 

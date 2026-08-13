@@ -1,7 +1,7 @@
 import { StatusCodes } from 'http-status-codes';
 import { z } from 'zod';
 
-import { attributeLinkIds, attributesFor, serviceInclude } from '#lib/hsds-query.js';
+import { attributeLinkIds, attributesFor, attributesForMany, serviceInclude } from '#lib/hsds-query.js';
 import {
   EntitySchema,
   IdParamsSchema,
@@ -59,13 +59,15 @@ export default async function (fastify) {
       })
     ]);
     reply.setPaginationHeaders(query.page, query.per_page, total);
-    const contents = await Promise.all(records.map(async (service) => {
+    const attributesByService = query.full && !query.minimal
+      ? await attributesForMany(fastify.prisma, 'service', records.map(({ id }) => id))
+      : undefined;
+    const contents = records.map((service) => {
       if (query.minimal) {
         return { id: service.id, last_modified: service.lastModified?.toISOString() };
       }
-      const attributes = query.full ? await attributesFor(fastify.prisma, 'service', service.id) : undefined;
-      return serializeService(service, { full: query.full, attributes });
-    }));
+      return serializeService(service, { full: query.full, attributes: attributesByService?.get(service.id) });
+    });
     return pageResponse({ page: query.page, perPage: query.per_page, total, contents });
   });
 

@@ -42,12 +42,32 @@ export const organizationInclude = {
   services: true
 };
 
-export async function attributesFor (prisma, linkEntity, linkId) {
-  return prisma.attribute.findMany({
-    where: { linkEntity, linkId },
+export async function attributesForMany (prisma, linkEntity, linkIds) {
+  const ids = [...new Set(linkIds.filter(Boolean))];
+  const grouped = new Map(ids.map((id) => [id, []]));
+  if (!ids.length) return grouped;
+  const attributes = await prisma.attribute.findMany({
+    where: { linkEntity, linkId: { in: ids } },
     include: { taxonomyTerm: { include: { taxonomyDetail: true } } },
     orderBy: { id: 'asc' }
   });
+  for (const attribute of attributes) {
+    grouped.get(attribute.linkId)?.push(attribute);
+  }
+  return grouped;
+}
+
+export async function attributesFor (prisma, linkEntity, linkId) {
+  return (await attributesForMany(prisma, linkEntity, [linkId])).get(linkId) ?? [];
+}
+
+export function taxonomyTermParentWhere ({ topOnly = false, parentId } = {}) {
+  if (topOnly && parentId) {
+    return { AND: [{ parentId: null }, { parentId }] };
+  }
+  if (topOnly) return { parentId: null };
+  if (parentId) return { parentId };
+  return {};
 }
 
 export async function attributeLinkIds (prisma, linkEntity, { taxonomyId, taxonomyTermId }) {

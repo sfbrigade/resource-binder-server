@@ -1,7 +1,7 @@
 import { StatusCodes } from 'http-status-codes';
 import { z } from 'zod';
 
-import { attributeLinkIds, attributesFor, organizationInclude, serviceInclude } from '#lib/hsds-query.js';
+import { attributeLinkIds, attributesFor, attributesForMany, organizationInclude, serviceInclude } from '#lib/hsds-query.js';
 import {
   EntitySchema,
   IdParamsSchema,
@@ -18,8 +18,10 @@ const QuerySchema = PaginationQuerySchema.extend({
   full_service: z.stringbool().default(false)
 });
 
-async function getAttributes (prisma, organization, full) {
-  return full ? attributesFor(prisma, 'organization', organization.id) : undefined;
+async function serviceAttributesFor (prisma, organizations, fullService) {
+  if (!fullService) return undefined;
+  const serviceIds = organizations.flatMap((organization) => organization.services?.map(({ id }) => id) ?? []);
+  return attributesForMany(prisma, 'service', serviceIds);
 }
 
 export default async function (fastify) {
@@ -61,13 +63,22 @@ export default async function (fastify) {
         take: query.per_page
       })
     ]);
+    const attributesByOrg = full
+      ? await attributesForMany(fastify.prisma, 'organization', records.map(({ id }) => id))
+      : undefined;
+    const serviceAttributes = await serviceAttributesFor(fastify.prisma, records, query.full_service);
     reply.setPaginationHeaders(query.page, query.per_page, total);
-    const contents = await Promise.all(records.map(async (organization) => serializeOrganization(organization, {
-      full,
-      fullService: query.full_service,
-      attributes: await getAttributes(fastify.prisma, organization, full)
-    })));
-    return pageResponse({ page: query.page, perPage: query.per_page, total, contents });
+    return pageResponse({
+      page: query.page,
+      perPage: query.per_page,
+      total,
+      contents: records.map((organization) => serializeOrganization(organization, {
+        full,
+        fullService: query.full_service,
+        attributes: attributesByOrg?.get(organization.id),
+        serviceAttributes
+      }))
+    });
   });
 
   fastify.get('/:id', {
@@ -87,10 +98,12 @@ export default async function (fastify) {
     });
     if (!organization) return reply.code(StatusCodes.NOT_FOUND).send();
     const attributes = await attributesFor(fastify.prisma, 'organization', organization.id);
+    const serviceAttributes = await serviceAttributesFor(fastify.prisma, [organization], request.query.full_service);
     return serializeOrganization(organization, {
       full: true,
       fullService: request.query.full_service,
-      attributes
+      attributes,
+      serviceAttributes
     });
   });
 }

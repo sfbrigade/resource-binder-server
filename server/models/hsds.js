@@ -264,7 +264,7 @@ export function serializeServiceAtLocation (entry, { full = true } = {}) {
   });
 }
 
-export function serializeOrganization (organization, { full = false, fullService = false, attributes } = {}) {
+export function serializeOrganization (organization, { full = false, fullService = false, attributes, serviceAttributes } = {}) {
   return compact({
     id: organization.id,
     name: organization.name,
@@ -296,7 +296,7 @@ export function serializeOrganization (organization, { full = false, fullService
     additional_websites: full ? organization.additionalWebsites?.map((url) => compact({ id: url.id, label: url.label, url: url.url })) : undefined,
     services: full
       ? organization.services?.map((service) => fullService
-        ? serializeService(service, { full: true })
+        ? serializeService(service, { full: true, attributes: serviceAttributes?.get(service.id) })
         : compact({
           id: service.id,
           name: service.name,

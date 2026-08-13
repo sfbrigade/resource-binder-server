@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert';
 
-import { pageResponse, serializeService, serializeTaxonomyTerm } from '#models/hsds.js';
+import { taxonomyTermParentWhere } from '#lib/hsds-query.js';
+import { pageResponse, serializeOrganization, serializeService, serializeTaxonomyTerm } from '#models/hsds.js';
 
 test('HSDS serializers', async (t) => {
   await t.test('uses HSDS field names and enum values without inventing null data', () => {
@@ -56,4 +57,44 @@ test('HSDS serializers', async (t) => {
     assert.equal(term.attributes[0].link_type, 'additional_parent');
     assert.equal(term.attributes[0].value, '570d287a-4f0f-4315-b9ae-e68ddfdd4bfb');
   });
+
+  await t.test('includes nested service attributes on full_service organizations', () => {
+    const serviceId = '7abfcd33-25af-4c69-8309-b41c7bd8df9f';
+    const organization = serializeOrganization({
+      id: 'a2f87ed6-a885-449c-b9bc-bbc587bcf8e9',
+      name: 'Example Org',
+      description: 'Organization description',
+      services: [{
+        id: serviceId,
+        organizationId: 'a2f87ed6-a885-449c-b9bc-bbc587bcf8e9',
+        name: 'Example Service',
+        status: 'active'
+      }]
+    }, {
+      full: true,
+      fullService: true,
+      serviceAttributes: new Map([[serviceId, [{
+        id: '570d287a-4f0f-4315-b9ae-e68ddfdd4bfb',
+        linkId: serviceId,
+        linkType: 'note',
+        linkEntity: 'service',
+        value: 'Service note'
+      }]]])
+    });
+
+    assert.equal(organization.services[0].attributes[0].value, 'Service note');
+  });
+});
+
+test('taxonomy term parent filters', () => {
+  assert.deepStrictEqual(taxonomyTermParentWhere({ topOnly: true }), { parentId: null });
+  assert.deepStrictEqual(
+    taxonomyTermParentWhere({ parentId: 'a2f87ed6-a885-449c-b9bc-bbc587bcf8e9' }),
+    { parentId: 'a2f87ed6-a885-449c-b9bc-bbc587bcf8e9' }
+  );
+  assert.deepStrictEqual(
+    taxonomyTermParentWhere({ topOnly: true, parentId: 'a2f87ed6-a885-449c-b9bc-bbc587bcf8e9' }),
+    { AND: [{ parentId: null }, { parentId: 'a2f87ed6-a885-449c-b9bc-bbc587bcf8e9' }] }
+  );
+  assert.deepStrictEqual(taxonomyTermParentWhere({}), {});
 });
