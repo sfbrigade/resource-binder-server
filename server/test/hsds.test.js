@@ -1,8 +1,12 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert';
+import Fastify from 'fastify';
+import { fastifyZodOpenApiPlugin, serializerCompiler, validatorCompiler } from 'fastify-zod-openapi';
 
 import { taxonomyTermParentWhere } from '#lib/hsds-query.js';
 import { pageResponse, serializeOrganization, serializeService, serializeTaxonomyTerm } from '#models/hsds.js';
+import { apiMetadata, HSDS_DATA_GUIDE_URL } from '../routes/api/index.js';
+import taxonomyTermRoutes from '../routes/api/taxonomy_terms/index.js';
 
 test('HSDS serializers', async (t) => {
   await t.test('uses HSDS field names and enum values without inventing null data', () => {
@@ -92,9 +96,29 @@ test('taxonomy term parent filters', () => {
     taxonomyTermParentWhere({ parentId: 'a2f87ed6-a885-449c-b9bc-bbc587bcf8e9' }),
     { parentId: 'a2f87ed6-a885-449c-b9bc-bbc587bcf8e9' }
   );
-  assert.deepStrictEqual(
-    taxonomyTermParentWhere({ topOnly: true, parentId: 'a2f87ed6-a885-449c-b9bc-bbc587bcf8e9' }),
-    { AND: [{ parentId: null }, { parentId: 'a2f87ed6-a885-449c-b9bc-bbc587bcf8e9' }] }
-  );
   assert.deepStrictEqual(taxonomyTermParentWhere({}), {});
+});
+
+test('HSDS API metadata and taxonomy validation', async (t) => {
+  assert.equal(HSDS_DATA_GUIDE_URL, 'https://github.com/sfbrigade/resource-binder-server/blob/main/docs/sheltertech-hsds-profile.md');
+  const app = Fastify();
+  app.setValidatorCompiler(validatorCompiler);
+  app.setSerializerCompiler(serializerCompiler);
+  await app.register(fastifyZodOpenApiPlugin);
+  await app.register(taxonomyTermRoutes, { prefix: '/api/taxonomy_terms' });
+  t.after(() => app.close());
+
+  assert.deepStrictEqual(apiMetadata(), {
+    version: '3.2.3',
+    profile: HSDS_DATA_GUIDE_URL,
+    openapi_url: 'http://localhost:3000/api/openapi.json',
+    description: 'ShelterTech directory data converted to the Resource Binder HSDS 3.2.3 profile.',
+    data_guide: HSDS_DATA_GUIDE_URL
+  });
+
+  const conflictResponse = await app.inject().get('/api/taxonomy_terms').query({
+    top_only: 'true',
+    parent_id: 'a2f87ed6-a885-449c-b9bc-bbc587bcf8e9'
+  });
+  assert.equal(conflictResponse.statusCode, 400);
 });

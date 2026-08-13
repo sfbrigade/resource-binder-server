@@ -62,9 +62,6 @@ export async function attributesFor (prisma, linkEntity, linkId) {
 }
 
 export function taxonomyTermParentWhere ({ topOnly = false, parentId } = {}) {
-  if (topOnly && parentId) {
-    return { AND: [{ parentId: null }, { parentId }] };
-  }
   if (topOnly) return { parentId: null };
   if (parentId) return { parentId };
   return {};

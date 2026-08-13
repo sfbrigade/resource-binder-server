@@ -11,17 +11,20 @@ import {
   serializeTaxonomyTerm
 } from '#models/hsds.js';
 
-const QuerySchema = PaginationQuerySchema.extend({
+export const TaxonomyTermsQuerySchema = PaginationQuerySchema.extend({
   taxonomy_id: z.string().uuid().optional(),
   parent_id: z.string().uuid().optional(),
   top_only: z.stringbool().default(false)
+}).refine(({ parent_id: parentId, top_only: topOnly }) => !(parentId && topOnly), {
+  message: 'parent_id and top_only=true cannot be combined',
+  path: ['parent_id']
 });
 
 export default async function (fastify) {
   fastify.get('/', {
     schema: {
       description: 'Paginated list of HSDS taxonomy terms.',
-      querystring: QuerySchema,
+      querystring: TaxonomyTermsQuerySchema,
       response: { [StatusCodes.OK]: PageSchema }
     }
   }, async (request, reply) => {

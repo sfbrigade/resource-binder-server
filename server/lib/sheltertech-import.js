@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 
 const UUID_NAMESPACE = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
 
-export const CONVERSION_VERSION = 'sheltertech-hsds-v2';
+export const CONVERSION_VERSION = 'sheltertech-hsds-v3';
 
 export const PUBLIC_TABLES = [
   'accessibilities', 'addresses', 'addresses_services', 'categories',
@@ -63,6 +63,16 @@ const DAY_CODES = {
   Saturday: 'SA'
 };
 
+const NEXT_DAY = {
+  Sunday: 'Monday',
+  Monday: 'Tuesday',
+  Tuesday: 'Wednesday',
+  Wednesday: 'Thursday',
+  Thursday: 'Friday',
+  Friday: 'Saturday',
+  Saturday: 'Sunday'
+};
+
 const CANONICAL_DELEGATES = [
   'organization', 'program', 'service', 'serviceAtLocation', 'location',
   'phone', 'contact', 'address', 'schedule', 'funding', 'serviceArea',
@@ -81,30 +91,36 @@ const PRIVATE_FIELDS = new Set([
   'resources.internal_note', 'services.internal_note'
 ]);
 
-const PUBLIC_ATTRIBUTE_TABLES = new Set([
-  'instructions', 'notes', 'resources_sites', 'sites'
-]);
-
-const PUBLIC_ATTRIBUTE_FIELDS = new Set([
+const PUBLIC_ATTRIBUTE_KEYS = new Set([
+  'instructions.id', 'instructions.instruction', 'instructions.service_id',
+  'notes.id', 'notes.note', 'notes.resource_id', 'notes.service_id',
+  'resources_sites.resource_id', 'resources_sites.site_id',
   'categories.top_level', 'categories.featured',
   'eligibilities.feature_rank', 'eligibilities.is_parent',
-  'eligibility_relationships.parent_id', 'eligibility_relationships.child_id',
   'resources.featured', 'services.featured', 'services.boosted_category_id'
 ]);
 
-const REPORT_ONLY_KEYS = new Set(['resources.status']);
+const CANONICAL_KEYS = new Set([
+  'services.updated_at', 'phones.contact_id', 'schedule_days.close_day'
+]);
+
+const REPORT_ONLY_KEYS = new Set([
+  'resources.status', 'resources.contact_id', 'services.contact_id',
+  'addresses.address_3', 'addresses.address_4', 'categories.vocabulary',
+  'category_relationships.child_priority_rank', 'schedule_days.open_day'
+]);
 
 const REPORT_ONLY_FIELDS = new Set([
-  'created_at', 'verified_at', 'certified', 'certified_at', 'featured',
-  'source_attribution', 'contact_id', 'updated_at', 'address_3', 'address_4',
-  'vocabulary', 'child_priority_rank'
+  'created_at', 'verified_at', 'certified', 'certified_at',
+  'source_attribution', 'updated_at'
 ]);
 
 function fieldDisposition (table, field) {
   const key = `${table}.${field}`;
   if (PRIVATE_FIELDS.has(key)) return 'private';
-  if (PUBLIC_ATTRIBUTE_TABLES.has(table) || PUBLIC_ATTRIBUTE_FIELDS.has(key)) return 'public_attribute';
   if (UNSUPPORTED_TABLES.has(table)) return 'unclassified';
+  if (PUBLIC_ATTRIBUTE_KEYS.has(key)) return 'public_attribute';
+  if (CANONICAL_KEYS.has(key)) return 'canonical';
   if (REPORT_ONLY_KEYS.has(key)) return 'external_report_only';
   if (REPORT_ONLY_FIELDS.has(field)) return 'external_report_only';
   return 'canonical';
@@ -145,20 +161,29 @@ export function parsePostgresDump (contents) {
   const wanted = new Set(PUBLIC_TABLES);
   const tables = new Map(PUBLIC_TABLES.map((table) => [table, []]));
   const columnsByTable = new Map();
+  const ignoredSourceCounts = new Map();
   let table;
   let columns;
+  let ignoredTable;
 
   for (const line of contents.split('\n')) {
     const copy = line.match(/^COPY public\.([^ ]+) \(([^)]+)\) FROM stdin;$/);
     if (copy) {
       table = wanted.has(copy[1]) ? copy[1] : undefined;
       columns = table ? copy[2].split(', ') : undefined;
+      ignoredTable = table ? undefined : copy[1];
       if (table) columnsByTable.set(table, columns);
+      if (ignoredTable && !ignoredSourceCounts.has(ignoredTable)) ignoredSourceCounts.set(ignoredTable, 0);
       continue;
     }
     if (line === '\\.') {
       table = undefined;
       columns = undefined;
+      ignoredTable = undefined;
+      continue;
+    }
+    if (ignoredTable) {
+      ignoredSourceCounts.set(ignoredTable, ignoredSourceCounts.get(ignoredTable) + 1);
       continue;
     }
     if (!table) continue;
@@ -170,7 +195,7 @@ export function parsePostgresDump (contents) {
     tables.get(table).push(Object.fromEntries(columns.map((column, index) => [column, values[index]])));
   }
 
-  return { tables, columnsByTable };
+  return { tables, columnsByTable, ignoredSourceCounts };
 }
 
 export function validateSourceSchema (columnsByTable) {
@@ -209,16 +234,18 @@ function truthy (value) {
 
 export function formatLegacyTime (value) {
   if (value === null || value === undefined || value === '') return null;
-  const number = Number(value);
+  const source = String(value);
+  if (!/^\d{1,4}$/.test(source)) return null;
+  const number = Number(source);
   const hours = Math.floor(number / 100);
   const minutes = number % 100;
   if (!Number.isInteger(number) || minutes > 59 || hours > 24 || (hours === 24 && minutes !== 0)) return null;
-  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
+  return `${String(hours === 24 ? 0 : hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
 }
 
 export function formatStructuredTime (value) {
   if (value === null || value === undefined || value === '') return null;
-  const match = String(value).match(/^(\d{2}):(\d{2})(?::(\d{2}))?/);
+  const match = String(value).match(/^(\d{2}):(\d{2})(?::(\d{2}))?$/);
   if (!match) return null;
   const hours = Number(match[1]);
   const minutes = Number(match[2]);
@@ -232,15 +259,23 @@ export function parsePhone (number, serviceType) {
   const extension = String(number).match(/^(.*?);ext=(\d+)$/i);
   const parsedNumber = extension ? extension[1] : number;
   if (parsedNumber === '') return null;
-  const kind = String(serviceType ?? '').toLowerCase();
+  const sourceType = String(serviceType ?? '').trim();
+  const kind = sourceType.toLowerCase();
+  const type = {
+    voice: 'voice',
+    fax: 'fax',
+    text: 'text',
+    sms: 'text',
+    cell: 'cell',
+    video: 'video',
+    pager: 'pager',
+    textphone: 'textphone'
+  }[kind];
   return {
     number: parsedNumber,
     extension: extension ? extension[2] : null,
-    type: kind.includes('fax')
-      ? 'fax'
-      : kind.includes('text') || kind.includes('sms')
-        ? 'text'
-        : 'voice'
+    type: type ?? null,
+    unmappedType: sourceType && !type ? sourceType : null
   };
 }
 
@@ -261,6 +296,40 @@ function indexById (rows) {
 
 function issue (sourceTable, key, field, code, message, details) {
   return { source_table: sourceTable, source_key: key == null ? null : String(key), field, code, message, details };
+}
+
+function reportOnlyValues (tables) {
+  const dispositions = fieldDispositions();
+  const values = [];
+  for (const [table, rows] of tables) {
+    for (const row of rows) {
+      for (const [field, value] of Object.entries(row)) {
+        if (dispositions[table][field] === 'external_report_only' && value !== null && value !== '') {
+          values.push({ source_table: table, source_key: sourceKey(row), field, value });
+        }
+      }
+    }
+  }
+  return values;
+}
+
+function sourceWarnings (tables) {
+  const warnings = [];
+  for (const [table, field] of [['resources', 'website'], ['services', 'url'], ['documents', 'url']]) {
+    for (const row of tables.get(table)) {
+      const value = text(row[field]);
+      if (value && !URL.canParse(value)) {
+        warnings.push(issue(table, row.id, field, 'INVALID_URI', `${table}.${field} is not an absolute URI`, { value }));
+      }
+    }
+  }
+  for (const row of tables.get('phones')) {
+    const unmappedType = parsePhone(row.number, row.service_type)?.unmappedType;
+    if (unmappedType) {
+      warnings.push(issue('phones', row.id, 'service_type', 'UNKNOWN_PHONE_TYPE', 'ShelterTech phone service type has no canonical mapping', { value: unmappedType }));
+    }
+  }
+  return warnings;
 }
 
 function validateSourceData (tables) {
@@ -380,6 +449,22 @@ function validateSourceData (tables) {
     if (row.close_time == null && row.closes_at != null && formatLegacyTime(row.closes_at) == null) issues.push(issue('schedule_days', row.id, 'closes_at', 'INVALID_TIME', `Invalid closes_at ${row.closes_at}`));
   }
 
+  const referencedDocuments = new Set(tables.get('documents_services').map(({ document_id: id }) => id));
+  for (const row of tables.get('documents')) {
+    if (!referencedDocuments.has(row.id)) issues.push(issue('documents', row.id, null, 'ORPHANED_ROW', 'Document is not linked to a service'));
+  }
+  const referencedFunding = new Set([
+    ...tables.get('resources').map(({ funding_id: id }) => id),
+    ...tables.get('services').map(({ funding_id: id }) => id)
+  ].filter(Boolean));
+  for (const row of tables.get('fundings')) {
+    if (!referencedFunding.has(row.id)) issues.push(issue('fundings', row.id, null, 'ORPHANED_ROW', 'Funding source is not linked to an organization or service'));
+  }
+  const referencedLanguages = new Set(tables.get('phones').map(({ language_id: id }) => id).filter(Boolean));
+  for (const row of tables.get('languages')) {
+    if (!referencedLanguages.has(row.id)) issues.push(issue('languages', row.id, null, 'ORPHANED_ROW', 'Language is not linked to a phone'));
+  }
+
   const addressesByResource = groupBy(tables.get('addresses'), 'resource_id');
   const explicitByService = groupBy(tables.get('addresses_services'), 'service_id');
   for (const service of tables.get('services')) {
@@ -431,39 +516,48 @@ async function importCanonical (tx, tables) {
 
   for (const row of resources) {
     const id = sheltertechUuid('organization', row.id);
+    const sourceDescription = description(row.short_description, row.long_description);
     await insert('organization', {
       id,
       name: row.name,
       alternateName: text(row.alternate_name),
-      description: description(row.short_description, row.long_description) ?? row.name,
+      description: sourceDescription ?? row.name,
       email: text(row.email),
       website: text(row.website),
       legalStatus: text(row.legal_status)
     });
-    record(mapping('resources', row.id, 'organization', id, 'resource_to_organization'));
+    record(
+      mapping('resources', row.id, 'organization', id, 'resource_to_organization'),
+      ...(!sourceDescription ? [mapping('resources', row.id, 'organization', id, 'name_as_description', true)] : [])
+    );
   }
 
   for (const row of tables.get('programs')) {
     const id = sheltertechUuid('program', row.id);
+    const sourceDescription = description(row.description);
     await insert('program', {
       id,
       organizationId: sheltertechUuid('organization', row.resource_id),
       name: row.name,
       alternateName: text(row.alternate_name),
-      description: description(row.description) ?? row.name
+      description: sourceDescription ?? row.name
     });
-    record(mapping('programs', row.id, 'program', id, 'program_to_program'));
+    record(
+      mapping('programs', row.id, 'program', id, 'program_to_program'),
+      ...(!sourceDescription ? [mapping('programs', row.id, 'program', id, 'name_as_description', true)] : [])
+    );
   }
 
   for (const row of services) {
     const id = sheltertechUuid('service', row.id);
+    const sourceDescription = description(row.short_description, row.long_description);
     await insert('service', {
       id,
       organizationId: sheltertechUuid('organization', row.resource_id),
       programId: row.program_id ? sheltertechUuid('program', row.program_id) : null,
       name: row.name,
       alternateName: text(row.alternate_name),
-      description: description(row.short_description, row.long_description) ?? row.name,
+      description: sourceDescription ?? row.name,
       url: text(row.url),
       email: text(row.email),
       status: 'active',
@@ -475,7 +569,10 @@ async function importCanonical (tx, tables) {
       eligibilityDescription: text(row.eligibility),
       lastModified: date(row.updated_at)
     });
-    record(mapping('services', row.id, 'service', id, 'service_to_service'));
+    record(
+      mapping('services', row.id, 'service', id, 'service_to_service'),
+      ...(!sourceDescription ? [mapping('services', row.id, 'service', id, 'name_as_description', true)] : [])
+    );
 
     if (text(row.required_documents)) {
       const documentId = sheltertechUuid('required_document_text', row.id);
@@ -541,7 +638,10 @@ async function importCanonical (tx, tables) {
       number: phone.number,
       extension: phone.extension,
       type: phone.type,
-      description: text(row.description)
+      description: description(
+        row.description,
+        phone.unmappedType ? `ShelterTech service type: ${phone.unmappedType}` : null
+      )
     });
     record(mapping('phones', row.id, 'phone', id, 'phone_to_phone'));
   }
@@ -615,14 +715,14 @@ async function importCanonical (tx, tables) {
   const categoryParents = groupBy(tables.get('category_relationships'), 'child_id');
   for (const row of tables.get('categories')) {
     const id = sheltertechUuid('category_term', row.id);
-    await insert('taxonomyTerm', { id, taxonomyId: categoryTaxonomyId, code: row.id, name: row.name, description: row.name, taxonomy: 'ShelterTech categories' });
+    await insert('taxonomyTerm', { id, taxonomyId: categoryTaxonomyId, code: null, name: row.name, description: row.name, taxonomy: 'ShelterTech categories' });
     record(mapping('categories', row.id, 'taxonomy_term', id, 'category_to_taxonomy_term'));
   }
 
   const eligibilityParents = groupBy(tables.get('eligibility_relationships'), 'child_id');
   for (const row of tables.get('eligibilities')) {
     const id = sheltertechUuid('eligibility_term', row.id);
-    await insert('taxonomyTerm', { id, taxonomyId: eligibilityTaxonomyId, code: row.id, name: row.name, description: row.name, taxonomy: 'ShelterTech eligibilities' });
+    await insert('taxonomyTerm', { id, taxonomyId: eligibilityTaxonomyId, code: null, name: row.name, description: row.name, taxonomy: 'ShelterTech eligibilities' });
     record(mapping('eligibilities', row.id, 'taxonomy_term', id, 'eligibility_to_taxonomy_term'));
   }
   const siteTermIds = new Map();
@@ -690,18 +790,18 @@ async function importCanonical (tx, tables) {
   }
 
   for (const row of tables.get('categories')) {
-    if (truthy(row.top_level)) await addAttribute({ sourceTable: 'categories', key: row.id, entity: 'taxonomy_term', linkId: sheltertechUuid('category_term', row.id), termId: legacyTermIds.category_top_level, linkType: 'legacy', value: 'true', rule: 'category_top_level' });
-    if (truthy(row.featured)) await addAttribute({ sourceTable: 'categories', key: row.id, entity: 'taxonomy_term', linkId: sheltertechUuid('category_term', row.id), termId: legacyTermIds.category_featured, linkType: 'legacy', value: 'true', rule: 'category_featured' });
+    if (text(row.top_level)) await addAttribute({ sourceTable: 'categories', key: row.id, entity: 'taxonomy_term', linkId: sheltertechUuid('category_term', row.id), termId: legacyTermIds.category_top_level, linkType: 'legacy', value: String(truthy(row.top_level)), rule: 'category_top_level' });
+    if (text(row.featured)) await addAttribute({ sourceTable: 'categories', key: row.id, entity: 'taxonomy_term', linkId: sheltertechUuid('category_term', row.id), termId: legacyTermIds.category_featured, linkType: 'legacy', value: String(truthy(row.featured)), rule: 'category_featured' });
   }
   for (const row of tables.get('eligibilities')) {
-    if (truthy(row.is_parent)) await addAttribute({ sourceTable: 'eligibilities', key: row.id, entity: 'taxonomy_term', linkId: sheltertechUuid('eligibility_term', row.id), termId: legacyTermIds.eligibility_is_parent, linkType: 'legacy', value: 'true', rule: 'eligibility_is_parent' });
+    if (text(row.is_parent)) await addAttribute({ sourceTable: 'eligibilities', key: row.id, entity: 'taxonomy_term', linkId: sheltertechUuid('eligibility_term', row.id), termId: legacyTermIds.eligibility_is_parent, linkType: 'legacy', value: String(truthy(row.is_parent)), rule: 'eligibility_is_parent' });
     if (text(row.feature_rank)) await addAttribute({ sourceTable: 'eligibilities', key: row.id, entity: 'taxonomy_term', linkId: sheltertechUuid('eligibility_term', row.id), termId: legacyTermIds.eligibility_feature_rank, linkType: 'legacy', value: row.feature_rank, rule: 'eligibility_feature_rank' });
   }
   for (const row of resources) {
-    if (truthy(row.featured)) await addAttribute({ sourceTable: 'resources', key: row.id, entity: 'organization', linkId: sheltertechUuid('organization', row.id), termId: legacyTermIds.featured, linkType: 'legacy', value: 'true', rule: 'organization_featured' });
+    if (text(row.featured)) await addAttribute({ sourceTable: 'resources', key: row.id, entity: 'organization', linkId: sheltertechUuid('organization', row.id), termId: legacyTermIds.featured, linkType: 'legacy', value: String(truthy(row.featured)), rule: 'organization_featured' });
   }
   for (const row of services) {
-    if (truthy(row.featured)) await addAttribute({ sourceTable: 'services', key: row.id, entity: 'service', linkId: sheltertechUuid('service', row.id), termId: legacyTermIds.featured, linkType: 'legacy', value: 'true', rule: 'service_featured' });
+    if (text(row.featured)) await addAttribute({ sourceTable: 'services', key: row.id, entity: 'service', linkId: sheltertechUuid('service', row.id), termId: legacyTermIds.featured, linkType: 'legacy', value: String(truthy(row.featured)), rule: 'service_featured' });
     if (row.boosted_category_id) await addAttribute({ sourceTable: 'services', key: row.id, entity: 'service', linkId: sheltertechUuid('service', row.id), termId: legacyTermIds.boosted_category, linkType: 'legacy', value: sheltertechUuid('category_term', row.boosted_category_id), rule: 'service_boosted_category' });
   }
   for (const row of tables.get('notes')) {
@@ -754,18 +854,23 @@ async function importCanonical (tx, tables) {
         const closesAt = day
           ? day.close_time != null ? formatStructuredTime(day.close_time) : formatLegacyTime(day.closes_at)
           : null;
-        const notes = day?.close_day && day.close_day !== day.day
-          ? `Closes ${day.close_day}${closesAt ? ` at ${closesAt}` : ''}`
-          : opensAt && closesAt && closesAt < opensAt
-            ? `Closes next day at ${closesAt}`
-            : null;
+        const opensNextDay = day?.open_time == null && Number(day?.opens_at) === 2400;
+        const closesNextDay = day?.close_time == null && Number(day?.closes_at) === 2400;
+        const effectiveDay = opensNextDay ? NEXT_DAY[day.day] : day?.day;
+        const notes = closesNextDay
+          ? `Closes next day at ${closesAt}`
+          : day?.close_day && day.close_day !== day.day
+            ? `Closes ${day.close_day}${closesAt ? ` at ${closesAt}` : ''}`
+            : opensAt && closesAt && closesAt < opensAt
+              ? `Closes next day at ${closesAt}`
+              : null;
         await insert('schedule', {
           id,
           serviceId: target.type === 'service' ? target.targetId : null,
           locationId: target.type === 'location' ? target.targetId : null,
-          freq: day && DAY_CODES[day.day] ? 'WEEKLY' : null,
-          interval: day && DAY_CODES[day.day] ? 1 : null,
-          byday: day ? DAY_CODES[day.day] ?? null : null,
+          freq: day && DAY_CODES[effectiveDay] ? 'WEEKLY' : null,
+          interval: day && DAY_CODES[effectiveDay] ? 1 : null,
+          byday: day ? DAY_CODES[effectiveDay] ?? null : null,
           opensAt,
           closesAt,
           description: !day && !truthy(schedule.hours_known) ? 'Hours unknown' : null,
@@ -782,7 +887,7 @@ async function importCanonical (tx, tables) {
   return { mappings, canonical_counts: counts };
 }
 
-function baseReport (dumpPath, contents, tables) {
+function baseReport (dumpPath, contents, tables, ignoredSourceCounts = new Map()) {
   return {
     status: 'running',
     conversion_version: CONVERSION_VERSION,
@@ -791,11 +896,14 @@ function baseReport (dumpPath, contents, tables) {
     source_counts: tables
       ? Object.fromEntries([...tables].map(([table, rows]) => [table, rows.length]))
       : {},
+    ignored_source_counts: Object.fromEntries(ignoredSourceCounts),
     canonical_counts: {},
     field_dispositions: fieldDispositions(),
+    report_only_values: tables ? reportOnlyValues(tables) : [],
     mappings: [],
     inferred_mappings: [],
-    issues: []
+    issues: [],
+    warnings: tables ? sourceWarnings(tables) : []
   };
 }
 
@@ -807,7 +915,7 @@ export async function importSheltertechDump (prisma, dumpPath) {
   try {
     const parsed = parsePostgresDump(contents);
     tables = parsed.tables;
-    Object.assign(report, baseReport(dumpPath, contents, tables));
+    Object.assign(report, baseReport(dumpPath, contents, tables, parsed.ignoredSourceCounts));
     validateSourceSchema(parsed.columnsByTable);
     report.issues = validateSourceData(tables);
     if (report.issues.length) throw new Error(`ShelterTech preflight failed with ${report.issues.length} issue(s)`);
