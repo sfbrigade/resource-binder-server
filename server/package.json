@@ -8,6 +8,7 @@
   },
   "scripts": {
     "dev": "prisma migrate deploy; prisma db push --accept-data-loss; npm run prisma:generate; fastify start -w -l info -P app.js",
+    "import:sheltertech": "node bin/import-sheltertech.js",
     "lint": "eslint --fix",
     "lint:check": "eslint",
     "pretest": "eslint",
