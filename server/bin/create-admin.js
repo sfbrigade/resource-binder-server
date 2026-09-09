@@ -1,22 +1,22 @@
 #!/usr/bin/env node
-
 import '../config.js';
-import User from '#models/user.js';
 import prisma from '#prisma/client.js';
+import { createAuth } from '#lib/auth.js';
 
 if (process.argv.length !== 6) {
-  console.log('Usage: bin/create-admin.js First Last email@address.com password');
+  console.error('Usage: bin/create-admin.js First Last email@address.com password');
   process.exit(1);
 }
 
-const data = {
-  firstName: process.argv[2],
-  lastName: process.argv[3],
-  email: process.argv[4],
-  isAdmin: true,
-};
-const user = new User(data);
-await user.setPassword(process.argv[5]);
-await prisma.user.create({ data });
-await prisma.$disconnect();
-console.log('Done!');
+const [firstName, lastName, email, password] = process.argv.slice(2);
+try {
+  const auth = createAuth(prisma);
+  await auth.api.createUser({ body: { name: `${firstName} ${lastName}`, email, password, role: 'admin', data: { firstName, lastName } } });
+  await auth.api.sendVerificationEmail({ body: { email } });
+  console.log('Admin created. Check your email to verify the account before signing in.');
+} catch {
+  console.error('Admin creation or email delivery failed. If the account exists, request another verification email.');
+  process.exitCode = 1;
+} finally {
+  await prisma.$disconnect();
+}

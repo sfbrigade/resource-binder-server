@@ -1,7 +1,7 @@
 import { fromNodeHeaders } from 'better-auth/node';
 
 export function registerAuthRoutes (fastify, auth) {
-  for (const action of ['magic-link', 'verify-email', 'reset-password']) {
+  for (const action of ['magic-link', 'verify-email', 'reset-password', 'invite']) {
     fastify.get(`/auth/${action}`, async (request, reply) => {
       return reply
         .header('Cache-Control', 'no-store')

@@ -26,11 +26,7 @@ model User {
   banReason               String?
   banExpires              DateTime?
   picture                 String?
-  isAdmin                 Boolean   @default(false)
-  hashedPassword          String?
   deactivatedAt           DateTime?
-  passwordResetToken      String?   @unique @db.Uuid
-  passwordResetExpiresAt  DateTime?
   sessions                Session[]
   accounts                Account[]
   createdInvites          Invite[]  @relation("CreatedByUser")
