@@ -3,7 +3,7 @@ import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { getCurrentAdapter, queueAfterTransactionHook } from '@better-auth/core/context';
 import { APIError, createAuthMiddleware, sendVerificationEmailFn } from 'better-auth/api';
 import { hashPassword } from 'better-auth/crypto';
-import { admin } from 'better-auth/plugins';
+import { admin, bearer, magicLink } from 'better-auth/plugins';
 import { defaultAc, userAc } from 'better-auth/plugins/admin/access';
 import User from '#models/user.js';
 import mailer from '#lib/mailer.js';
@@ -37,10 +37,16 @@ const invitations = {
 
 // Construct after configuration is loaded; tests supply their own database.
 export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = process.env.BETTER_AUTH_SECRET } = {}) {
+  const linkOrigin = new URL(process.env.AUTH_LINK_BASE_URL || baseURL).origin;
+  const appLink = (action, token) => {
+    const url = new URL(`/auth/${action}`, linkOrigin);
+    url.searchParams.set('token', token);
+    return url.toString();
+  };
   return betterAuth({
     baseURL,
     secret,
-    trustedOrigins: [new URL(baseURL).origin],
+    trustedOrigins: [new URL(baseURL).origin, linkOrigin],
     disabledPaths: ['/update-user'],
     database: prismaAdapter(prisma, { provider: 'postgresql', transaction: true }),
     advanced: {
@@ -71,12 +77,12 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
           return hashPassword(password);
         },
       },
-      sendResetPassword: ({ user, url }) => sendAuthEmail(user.email, 'password-reset', { firstName: user.firstName, url }),
+      sendResetPassword: ({ user, token }) => sendAuthEmail(user.email, 'password-reset', { firstName: user.firstName, url: appLink('reset-password', token) }),
     },
     emailVerification: {
       sendOnSignUp: true,
       autoSignInAfterVerification: false,
-      sendVerificationEmail: ({ user, url }) => queueAfterTransactionHook(() => sendAuthEmail(user.email, 'verification', { firstName: user.firstName, url })),
+      sendVerificationEmail: ({ user, token }) => queueAfterTransactionHook(() => sendAuthEmail(user.email, 'verification', { firstName: user.firstName, url: appLink('verify-email', token) })),
     },
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
@@ -163,7 +169,16 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
         },
       },
     },
-    plugins: [invitations, admin({
+    plugins: [invitations, bearer(), magicLink({
+      disableSignUp: true,
+      expiresIn: 300,
+      storeToken: 'hashed',
+      async sendMagicLink ({ email, token }) {
+        const user = await prisma.user.findUnique({ where: { email } });
+        if (!user?.emailVerified || user.banned) return;
+        await sendAuthEmail(user.email, 'magic-link', { firstName: user.firstName, url: appLink('magic-link', token) });
+      },
+    }), admin({
       roles: {
         user: userAc,
         admin: defaultAc.newRole({
