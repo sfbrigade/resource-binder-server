@@ -1,9 +1,6 @@
-import bcrypt from 'bcrypt';
-import crypto from 'crypto';
 import { z } from 'zod';
 
 import Base from './base.js';
-import mailer from '#lib/mailer.js';
 import { Prisma } from '#prisma/client.js';
 
 const UserAttributesSchema = z.object({
@@ -21,6 +18,7 @@ const UserAttributesSchema = z.object({
 const UserPasswordSchema = z
   .string()
   .min(8, 'Password must be at least 8 characters long')
+  .max(128, 'Password must be at most 128 characters long')
   .regex(
     /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/,
     'Password must include uppercase, lowercase, number, and special characters'
@@ -41,12 +39,9 @@ const UserResponseSchema = UserAttributesSchema.extend({
   deactivatedAt: z.coerce.date().nullable(),
 });
 
-const UserUpdateSchema = UserAttributesSchema.extend({
-  password: UserPasswordSchema.or(z.literal('')),
+const UserUpdateSchema = UserAttributesSchema.pick({ firstName: true, lastName: true }).extend({
   picture: z.string().nullable(),
-  isAdmin: z.boolean(),
-  deactivatedAt: z.coerce.date().nullable(),
-}).partial();
+}).partial().strict();
 
 export class User extends Base {
   static PasswordSchema = UserPasswordSchema;
@@ -62,45 +57,16 @@ export class User extends Base {
     return this.getAssetUrl('picture');
   }
 
+  get isAdmin () {
+    return this.role?.split(',').includes('admin') ?? false;
+  }
+
   get isActive () {
-    return !this.deactivatedAt;
+    return this.emailVerified && !this.banned;
   }
 
-  get isPasswordResetTokenValid () {
-    return new Date() <= new Date(this.passwordResetExpiresAt);
-  }
-
-  get fullNameAndEmail () {
-    return `${this.firstName} ${this.lastName} <${this.email}>`
-      .trim()
-      .replace(/ {2,}/g, ' ');
-  }
-
-  generatePasswordResetToken () {
-    this.passwordResetToken = crypto.randomUUID();
-  }
-
-  async sendPasswordResetEmail () {
-    const { firstName } = this;
-    const url = `${process.env.BASE_URL}/passwords/reset/${this.passwordResetToken}`;
-    return mailer.send({
-      message: {
-        to: this.fullNameAndEmail,
-      },
-      template: 'password-reset',
-      locals: {
-        firstName,
-        url,
-      },
-    });
-  }
-
-  async setPassword (password) {
-    this.hashedPassword = await bcrypt.hash(password, 10);
-  }
-
-  async comparePassword (password) {
-    return bcrypt.compare(password, this.hashedPassword);
+  toJSON () {
+    return UserResponseSchema.parse(this);
   }
 }
 
