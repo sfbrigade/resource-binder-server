@@ -56,7 +56,7 @@ export async function signUp (app, email = 'person@example.com', extra = {}) {
   return post(app, '/sign-up/email', { firstName: 'Test', lastName: 'Person', email, password, ...extra });
 }
 
-export async function verifiedUser ({ app, mail }, email = 'person@example.com') {
+export async function verifiedUser ({ app, mail, prisma }, email = 'person@example.com') {
   const signup = await signUp(app, email);
   if (signup.statusCode !== 200) throw new Error(`Signup failed: ${signup.body}`);
   const verification = await app.inject(`/api/auth/verify-email?token=${mailToken(mail)}`);
@@ -64,5 +64,18 @@ export async function verifiedUser ({ app, mail }, email = 'person@example.com')
   const login = await post(app, '/sign-in/email', { email, password });
   if (login.statusCode !== 200) throw new Error(`Login failed: ${login.statusCode}`);
   const cookie = login.cookies.map(({ name, value }) => `${name}=${value}`).join('; ');
+  await prisma.rateLimit.deleteMany();
   return { user: signup.json().user, headers: { cookie }, token: login.json().token };
+}
+
+export async function verifiedAdmin ({ auth, app, mail, prisma }) {
+  const email = 'admin@example.com';
+  const { user } = await auth.api.createUser({ body: { name: 'Test Admin', email, password, role: 'admin', data: { firstName: 'Test', lastName: 'Admin' } } });
+  await auth.api.sendVerificationEmail({ body: { email } });
+  const verified = await app.inject(`/api/auth/verify-email?token=${mailToken(mail)}`);
+  if (verified.statusCode !== 200) throw new Error('Admin verification failed');
+  const login = await post(app, '/sign-in/email', { email, password });
+  if (login.statusCode !== 200) throw new Error(`Admin login failed: ${login.statusCode}`);
+  await prisma.rateLimit.deleteMany();
+  return { user, headers: { cookie: login.cookies.map(({ name, value }) => `${name}=${value}`).join('; ') } };
 }
