@@ -6,7 +6,8 @@ import { authenticate, build } from '#test/helper.js';
 
 test('/api/assets', async (t) => {
   const app = await build(t);
-  const userHeaders = authenticate(app, 'regular.user@test.com', 'test');
+  let userHeaders;
+  t.beforeEach(async () => { userHeaders = await authenticate(app, 'regular.user@test.com', 'test'); });
 
   await t.test('POST /', async (t) => {
     await t.test('returns signed upload url for the asset type', async () => {

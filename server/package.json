@@ -7,13 +7,13 @@
     "test": "test"
   },
   "scripts": {
-    "dev": "prisma migrate deploy; prisma db push --accept-data-loss; npm run prisma:generate; fastify start -w -l info -P app.js",
+    "dev": "prisma migrate deploy && npm run prisma:generate && fastify start --options -w -l info -P app.js",
     "lint": "eslint --fix",
     "lint:check": "eslint",
     "pretest": "eslint",
-    "prisma:generate": "prisma generate; tsc",
+    "prisma:generate": "prisma generate && tsc",
     "prisma:studio": "prisma studio",
-    "start": "fastify start -l info app.js",
+    "start": "prisma migrate deploy && fastify start --options -l info app.js",
     "test": "node --test-concurrency 1 --test $(find test -name '*.test.js')",
     "tsc:watch": "tsc --watch --preserveWatchOutput"
   },
@@ -24,7 +24,6 @@
     "@aws-sdk/s3-request-presigner": "^3.1010.0",
     "@better-auth/core": "1.7.3",
     "@fastify/autoload": "^6.3.1",
-    "@fastify/secure-session": "^8.3.0",
     "@fastify/static": "^9.0.0",
     "@fastify/swagger": "^9.7.0",
     "@fastify/url-data": "^6.0.3",
@@ -32,7 +31,6 @@
     "@prisma/client": "^7.5.0",
     "@scalar/fastify-api-reference": "^1.48.8",
     "accepts": "^1.3.8",
-    "bcrypt": "^6.0.0",
     "better-auth": "1.7.3",
     "dotenv": "^17.3.1",
     "ejs": "^3.1.5",

@@ -11,6 +11,12 @@ This repository contains a "starter" project for web application development in 
 - Node.js
 - Postgres
 
+Authentication now uses Better Auth for registration, passwords, admin credential
+changes, and native-app magic links. See [the authentication guide](docs/authentication.md)
+for setup, the mobile API contract, and the five review stages. Set a private
+`BETTER_AUTH_SECRET` in `server/.env` before starting the server. The existing React
+authentication screens still use the retired endpoints and need a separate migration.
+
 ## One-time Setup
 
 1. On Github, "Fork" this git repo to your own account so that you have your own copy.
@@ -61,7 +67,7 @@ This repository contains a "starter" project for web application development in 
    bin/create-admin.js Firstname Lastname email password
    ```
 
-   Put in your name and email address and a password. This will create a first admin user in the database.
+   Put in your name and email address and a strong password. This creates the first admin through Better Auth; verify the emailed link before signing in.
 
 7. To stop the server, press CONTROL-C in the window with the running server.
    If it is successful, you will see something like this:
