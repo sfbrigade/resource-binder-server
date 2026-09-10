@@ -24,17 +24,10 @@ const invitations = {
   schema: {
     invite: {
       fields: {
-        firstName: { type: 'string' },
-        lastName: { type: 'string', required: false },
         email: { type: 'string' },
-        message: { type: 'string', required: false },
-        createdById: { type: 'string' },
         acceptedById: { type: 'string', required: false },
-        revokedById: { type: 'string', required: false },
         acceptedAt: { type: 'date', required: false },
         revokedAt: { type: 'date', required: false },
-        createdAt: { type: 'date' },
-        updatedAt: { type: 'date' },
       },
     },
   },
