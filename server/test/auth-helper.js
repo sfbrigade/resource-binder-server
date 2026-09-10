@@ -49,7 +49,7 @@ export function post (app, path, payload, headers = {}) {
 export function mailToken (mail) {
   const text = mail.getSentMail().at(-1).text;
   const url = new URL(text.match(/http[^\s]+/)[0]);
-  return url.searchParams.get('token') ?? url.pathname.split('/').at(-1);
+  return url.searchParams.get('token');
 }
 
 export async function signUp (app, email = 'person@example.com', extra = {}) {
