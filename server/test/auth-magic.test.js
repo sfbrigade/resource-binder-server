@@ -70,4 +70,17 @@ test('Better Auth magic links and native sessions', async (t) => {
     const blocked = await post(app, '/sign-in/magic-link', { email: 'unknown@example.com' }, { 'x-auth-client-ip': '192.0.2.99' });
     assert.equal(blocked.statusCode, 429);
   });
+
+  await t.test('an outstanding link cannot verify an account or remove its password after an admin email change', async () => {
+    const admin = await verifiedAdmin(fixture);
+    const { user } = await verifiedUser(fixture);
+    const token = await requestLink(user.email);
+    const credential = await prisma.account.findFirst({ where: { userId: user.id } });
+    // Reassigning even the same email requires a new verification.
+    assert.equal((await post(app, '/admin/update-user', { userId: user.id, data: { email: user.email } }, admin.headers)).statusCode, 200);
+    assert.notEqual((await app.inject(`/api/auth/magic-link/verify?token=${token}`)).statusCode, 200);
+    assert.equal((await prisma.user.findUnique({ where: { id: user.id } })).emailVerified, false);
+    assert.equal((await prisma.account.findUnique({ where: { id: credential.id } })).password, credential.password);
+    assert.equal(await prisma.session.count({ where: { userId: user.id } }), 0);
+  });
 });

@@ -15,6 +15,11 @@ do not need a JavaScript SDK. Authentication endpoints live under `/api/auth`.
   public signup requires an invitation.
 - Existing `SMTP_*`/SES settings deliver mail; Mailcatcher captures local mail.
 
+Generate the secret locally with `openssl rand -base64 32` and put it in
+`server/.env` or the deployment secret store. The example placeholder deliberately
+fails startup. Run `npm run prisma:generate -w server` after installing dependencies;
+server startup applies checked-in migrations and stops if they fail.
+
 Only configured origins are trusted. Native HTTP clients can omit `Origin`;
 browser clients must use a trusted origin. The server overwrites its private
 client-IP header with Fastify's connection address for rate limiting. If deployed
@@ -39,6 +44,10 @@ The server derives `name`. Passwords require at least eight characters including
 uppercase, lowercase, a number, and a special character; the maximum is 128.
 Invitations must be unused, unrevoked, and match the email case-insensitively.
 Account creation and invitation acceptance commit together.
+
+Invitation emails open `/auth/invite?inviteId=...`. The app reads the invitation
+through `GET /api/invites/:id`, then includes that ID in signup. The landing page
+does not accept the invitation. An invitation does not bypass email verification.
 
 Signup returns Better Auth's `{user, token: null}` response. It is not a signed-in
 session, and duplicate signup can return an opaque success without creating a
@@ -125,6 +134,10 @@ An admin email change takes effect immediately, sets `emailVerified=false`, revo
 sessions, and sends verification. Supplying `emailVerified=true` is rejected.
 Impersonation, account deletion, and HTTP admin account creation are not permitted.
 The first-admin command uses Better Auth's server API and requires email verification.
+From the repository root, run
+`node server/bin/create-admin.js First Last email@example.com 'StrongPassword123!'`.
+For local API testing without a native app, copy the token from Mailcatcher and
+call `/api/auth/verify-email?token=...` directly.
 
 ## Mobile/domain setup (separate work)
 
@@ -151,3 +164,13 @@ Preparation stages leave the old application login active. The final stage is a
 breaking auth release: update native consumers and apply migrations before using
 the new server. The old React auth client is not migrated. Existing development
 passwords and sessions are not imported. Database resets are never run on startup.
+
+The cutover migration removes the legacy password/reset fields and stored
+`isAdmin` flag. It preserves names and access metadata; application responses derive
+`isAdmin` from Better Auth's role. Existing development accounts need verification
+and a Better Auth password reset. This migration is not a production-user password
+import or a reversible rollback to legacy authentication.
+
+Run the server checks with Docker available: `CI=true npm test -w server`.
+The tests use disposable databases, apply the migrations, and capture mail in
+memory. They do not send real email or alter the development database.

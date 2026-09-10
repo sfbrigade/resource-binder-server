@@ -20,6 +20,7 @@ import {
   Parser,
   Resolver,
 } from '@sfcivictech/prisma-fixtures';
+import { hashPassword } from 'better-auth/crypto';
 import { createClient } from '#prisma/client.js';
 
 import s3 from '#lib/s3.js';
@@ -55,7 +56,6 @@ async function build (t) {
   const TEMPLATE_DATABASE_URL = `postgresql://${startedDbContainer.getUsername()}:${startedDbContainer.getPassword()}@${startedDbContainer.getHost()}:${startedDbContainer.getPort()}/template1`;
   // run the migrations
   await util.promisify(exec)(`DATABASE_URL=${TEMPLATE_DATABASE_URL} npx prisma migrate deploy`);
-  await util.promisify(exec)(`DATABASE_URL=${TEMPLATE_DATABASE_URL} npx prisma db push`);
   const prisma = createClient(TEMPLATE_DATABASE_URL);
   // load fixtures
   const loader = new Loader();
@@ -66,6 +66,13 @@ async function build (t) {
   for (const fixture of fixturesIterator(fixtures)) {
     await builder.build(fixture);
   }
+  // Test-only credentials use Better Auth's password format.
+  const password = await hashPassword('test');
+  for (const user of await prisma.user.findMany()) {
+    await prisma.account.create({ data: { userId: user.id, accountId: user.id, providerId: 'credential', password } });
+  }
+  process.env.BASE_URL = 'http://localhost:3333';
+  process.env.BETTER_AUTH_SECRET = 'test-only-secret-with-at-least-32-characters';
   // configure test database url
   process.env.DATABASE_URL = `postgresql://${startedDbContainer.getUsername()}:${startedDbContainer.getPassword()}@${startedDbContainer.getHost()}:${startedDbContainer.getPort()}/${startedDbContainer.getDatabase()}`;
   t.prisma = createClient(process.env.DATABASE_URL);
@@ -86,13 +93,12 @@ async function build (t) {
   await s3.createBucket(process.env.AWS_S3_BUCKET);
 
   // you can set all the options supported by the fastify CLI command
-  const argv = [AppPath];
+  const argv = ['--options', AppPath];
 
   // fastify-plugin ensures that all decorators
   // are exposed for testing purposes, this is
   // different from the production setup
-  const app = await helper.build(argv, config());
-  app.prisma = t.prisma;
+  const app = await helper.build(argv, { ...config(), prisma: t.prisma });
 
   // recreate the database from the template created above
   async function recreateDb () {
@@ -118,6 +124,7 @@ async function build (t) {
   // tear down our app and the db container after we are done
   t.after(async () => {
     await app.close();
+    await prisma.$disconnect();
     await startedDbContainer.stop();
     await startedStorageContainer.stop();
   });
@@ -126,18 +133,18 @@ async function build (t) {
 }
 
 async function authenticate (app, email, password) {
-  const response = await app.inject().post('/api/auth/login').payload({
+  const response = await app.inject().post('/api/auth/sign-in/email').headers({ origin: process.env.BASE_URL }).payload({
     email,
     password,
   });
   if (response.statusCode !== StatusCodes.OK) {
-    throw new Error();
+    throw new Error(`Fixture sign-in failed: ${response.statusCode}`);
   }
+  // Authentication is fixture setup; rate limits have their own integration test.
+  await app.prisma.rateLimit.deleteMany();
   // send back headers needed to authenticate
   return {
-    cookie: response.headers['set-cookie']
-      ?.split(';')
-      .map((t) => t.trim())[0],
+    authorization: `Bearer ${response.headers['set-auth-token']}`,
   };
 }
 

@@ -37,7 +37,13 @@ const invitations = {
 
 // Construct after configuration is loaded; tests supply their own database.
 export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = process.env.BETTER_AUTH_SECRET } = {}) {
+  if (!secret || secret.length < 32 || secret.startsWith('replace-with-')) {
+    throw new Error('Set BETTER_AUTH_SECRET to a private random value of at least 32 characters.');
+  }
   const linkOrigin = new URL(process.env.AUTH_LINK_BASE_URL || baseURL).origin;
+  if (process.env.NODE_ENV === 'production' && [baseURL, linkOrigin].some(url => new URL(url).protocol !== 'https:')) {
+    throw new Error('Authentication origins must use HTTPS in production.');
+  }
   const appLink = (action, token) => {
     const url = new URL(`/auth/${action}`, linkOrigin);
     url.searchParams.set('token', token);
@@ -122,6 +128,9 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
         },
         update: {
           async before (data, ctx) {
+            if (ctx?.path === '/magic-link/verify' && data.emailVerified) {
+              throw new APIError('FORBIDDEN', { message: 'Verify your email before signing in.' });
+            }
             if (ctx?.path === '/admin/update-user' && data.email) {
               await ctx.context.internalAdapter.deleteUserSessions(ctx.body.userId);
               return { data: { ...data, emailVerified: false } };
@@ -142,6 +151,13 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
         },
       },
       account: {
+        delete: {
+          before (account, ctx) {
+            // Magic links are sign-in only, including links issued before an
+            // admin made the email unverified. Preserve the password account.
+            if (ctx?.path === '/magic-link/verify') throw new APIError('FORBIDDEN', { message: 'Verify your email before signing in.' });
+          },
+        },
         create: {
           async before (account, ctx) {
             if (ctx?.path !== '/sign-up/email' || !ctx.body.inviteId) return;
