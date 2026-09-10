@@ -1,5 +1,5 @@
 import { betterAuth } from 'better-auth';
-import { prismaAdapter } from '@better-auth/prisma-adapter';
+import { prismaAdapter } from 'better-auth/adapters/prisma';
 
 // Construct after configuration is loaded; tests supply their own database.
 export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = process.env.BETTER_AUTH_SECRET } = {}) {
