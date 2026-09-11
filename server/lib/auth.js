@@ -80,7 +80,7 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
     },
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
-        if (ctx.path === '/admin/create-user' && ctx.body.password) {
+        if (ctx.path === '/admin/create-user' && ctx.body?.password) {
           const result = User.PasswordSchema.safeParse(ctx.body.password);
           if (!result.success) throw new APIError('BAD_REQUEST', { message: result.error.issues[0].message });
         }
@@ -90,7 +90,9 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
         }
         if (ctx.path === '/admin/update-user') {
           // Other management actions have dedicated permission-checked APIs.
-          if (Object.keys(ctx.body.data).some(key => key !== 'email') || !ctx.body.data.email) {
+          const data = ctx.body?.data;
+          if (!data || typeof data !== 'object' || Array.isArray(data) ||
+            typeof data.email !== 'string' || !data.email || Object.keys(data).some(key => key !== 'email')) {
             throw new APIError('BAD_REQUEST', { message: 'Use this endpoint to change email only.' });
           }
         }
@@ -137,6 +139,14 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
               });
             }
             if (ctx?.path === '/admin/update-user' && data.email) {
+              const adapter = await getCurrentAdapter(ctx.context.adapter);
+              await adapter.deleteMany({
+                model: 'verification',
+                where: [
+                  { field: 'value', value: ctx.body.userId },
+                  { field: 'identifier', operator: 'starts_with', value: 'reset-password:' },
+                ],
+              });
               await ctx.context.internalAdapter.deleteUserSessions(ctx.body.userId);
               return { data: { ...data, emailVerified: false } };
             }
