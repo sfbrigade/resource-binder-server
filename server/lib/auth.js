@@ -131,6 +131,14 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
             return { data: { ...user, name: `${user.firstName} ${user.lastName}`, emailVerified: false } };
           },
         },
+        update: {
+          before (data, ctx) {
+            // Magic links are sign-in only and must not mark an unverified email as verified.
+            if (ctx?.path === '/magic-link/verify' && data.emailVerified) {
+              throw new APIError('FORBIDDEN', { message: 'Verify your email before signing in.' });
+            }
+          },
+        },
       },
       verification: {
         delete: {
@@ -143,6 +151,13 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
         },
       },
       account: {
+        delete: {
+          before (account, ctx) {
+            // Magic links are sign-in only, including links issued before the
+            // email became unverified. Preserve the password account.
+            if (ctx?.path === '/magic-link/verify') throw new APIError('FORBIDDEN', { message: 'Verify your email before signing in.' });
+          },
+        },
         create: {
           async before (account, ctx) {
             await deleteResetTokensBeforeCredentialWrite(ctx);
