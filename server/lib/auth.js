@@ -2,7 +2,7 @@ import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { getCurrentAdapter, queueAfterTransactionHook } from '@better-auth/core/context';
 import { APIError, createAuthMiddleware } from 'better-auth/api';
-import { hashPassword } from 'better-auth/crypto';
+import { hashPassword, verifyJWT } from 'better-auth/crypto';
 import User from '#models/user.js';
 import mailer from '#lib/mailer.js';
 
@@ -74,7 +74,7 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
         if (['/reset-password', '/change-password'].includes(ctx.path)) {
-          const result = User.PasswordSchema.safeParse(ctx.body.newPassword);
+          const result = User.PasswordSchema.safeParse(ctx.body?.newPassword);
           if (!result.success) throw new APIError('BAD_REQUEST', { message: result.error.issues[0].message });
         }
         if (ctx.path !== '/sign-up/email') return;
@@ -85,10 +85,35 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
         if (!inviteId && process.env.VITE_FEATURE_REGISTRATION !== 'true') {
           throw new APIError('FORBIDDEN', { message: 'A valid invitation is required.' });
         }
+        // Reject invalid invitations before Better Auth's duplicate-email response.
+        if (inviteId && !await prisma.invite.findFirst({
+          where: { id: inviteId, email: result.data.email.toLowerCase(), acceptedAt: null, revokedAt: null },
+        })) {
+          throw new APIError('BAD_REQUEST', { message: 'Invitation is invalid or no longer available.' });
+        }
         return { context: { body: { ...ctx.body, name: `${firstName} ${lastName}` } } };
       }),
     },
     databaseHooks: {
+      user: {
+        update: {
+          async before (data, ctx) {
+            if (ctx?.path !== '/verify-email' || !data.email) return;
+            // Email-change links can be verified without an authenticated session.
+            const token = await verifyJWT(ctx.query.token, ctx.context.secret);
+            const existing = token?.email && await ctx.context.internalAdapter.findUserByEmail(token.email);
+            if (!existing) throw new APIError('UNAUTHORIZED', { message: 'Email-change link is invalid or expired.' });
+            const adapter = await getCurrentAdapter(ctx.context.adapter);
+            await adapter.deleteMany({
+              model: 'verification',
+              where: [
+                { field: 'value', value: existing.user.id },
+                { field: 'identifier', operator: 'starts_with', value: 'reset-password:' },
+              ],
+            });
+          },
+        },
+      },
       account: {
         create: {
           async before (account, ctx) {
