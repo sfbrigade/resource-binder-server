@@ -27,7 +27,7 @@ test('first-admin verification email', async (t) => {
         assert.ok(token);
         for (const body of [message.html, message.text]) {
           assert.ok(body.includes('Hello First,'));
-          assert.ok(body.includes(`/auth/verify-email?token=${token}`));
+          assert.ok(body.includes(`/auth/verify-email?token=${encodeURIComponent(token)}`));
         }
         assert.equal((await app.inject(`/api/auth/verify-email?token=${token}`)).statusCode, 200);
         const verified = await prisma.user.findUnique({ where: { id: user.id } });
