@@ -6,7 +6,7 @@
 
 generator client {
   provider = "prisma-client"
-  output = "./generated/prisma"
+  output   = "./generated/prisma"
 }
 
 datasource db {
@@ -14,37 +14,480 @@ datasource db {
 }
 
 model User {
-  id                      String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  firstName               String
-  lastName                String
-  email                   String    @unique @db.Citext
-  picture                 String?
-  isAdmin                 Boolean   @default(false)
-  hashedPassword          String
-  deactivatedAt           DateTime?
-  passwordResetToken      String?   @unique @db.Uuid
-  passwordResetExpiresAt  DateTime?
-  createdInvites          Invite[]  @relation("CreatedByUser")
-  acceptedInvites         Invite[]  @relation("AcceptedByUser")
-  revokedInvites          Invite[]  @relation("RevokedByUser")
-  updatedAt               DateTime  @updatedAt
-  createdAt               DateTime  @default(now())
+  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  firstName              String
+  lastName               String
+  email                  String    @unique @db.Citext
+  picture                String?
+  isAdmin                Boolean   @default(false)
+  hashedPassword         String
+  deactivatedAt          DateTime?
+  passwordResetToken     String?   @unique @db.Uuid
+  passwordResetExpiresAt DateTime?
+  createdInvites         Invite[]  @relation("CreatedByUser")
+  acceptedInvites        Invite[]  @relation("AcceptedByUser")
+  revokedInvites         Invite[]  @relation("RevokedByUser")
+  updatedAt              DateTime  @updatedAt
+  createdAt              DateTime  @default(now())
 }
 
 model Invite {
-  id                      String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  firstName               String
-  lastName                String?
-  email                   String    @db.Citext
-  message                 String?
-  updatedAt               DateTime  @updatedAt
-  createdAt               DateTime  @default(now())
-  createdBy               User      @relation("CreatedByUser", fields: [createdById], references: [id])
-  createdById             String    @db.Uuid
-  acceptedAt              DateTime?
-  acceptedBy              User?     @relation("AcceptedByUser", fields: [acceptedById], references: [id])
-  acceptedById            String?   @db.Uuid
-  revokedAt               DateTime?
-  revokedBy               User?     @relation("RevokedByUser", fields: [revokedById], references: [id])
-  revokedById             String?   @db.Uuid
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  firstName    String
+  lastName     String?
+  email        String    @db.Citext
+  message      String?
+  updatedAt    DateTime  @updatedAt
+  createdAt    DateTime  @default(now())
+  createdBy    User      @relation("CreatedByUser", fields: [createdById], references: [id])
+  createdById  String    @db.Uuid
+  acceptedAt   DateTime?
+  acceptedBy   User?     @relation("AcceptedByUser", fields: [acceptedById], references: [id])
+  acceptedById String?   @db.Uuid
+  revokedAt    DateTime?
+  revokedBy    User?     @relation("RevokedByUser", fields: [revokedById], references: [id])
+  revokedById  String?   @db.Uuid
+}
+
+enum ServiceStatus {
+  active
+  inactive
+  defunct
+  temporarilyClosed @map("temporarily closed")
+}
+
+enum LocationType {
+  physical
+  postal
+  virtual
+}
+
+model Organization {
+  id                   String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                 String
+  alternateName        String?                  @map("alternate_name")
+  description          String
+  email                String?
+  website              String?
+  taxStatus            String?                  @map("tax_status")
+  taxId                String?                  @map("tax_id")
+  yearIncorporated     Int?                     @map("year_incorporated")
+  legalStatus          String?                  @map("legal_status")
+  logo                 String?
+  uri                  String?
+  parentOrganizationId String?                  @map("parent_organization_id") @db.Uuid
+  parentOrganization   Organization?            @relation("OrganizationHierarchy", fields: [parentOrganizationId], references: [id])
+  childOrganizations   Organization[]           @relation("OrganizationHierarchy")
+  programs             Program[]
+  services             Service[]
+  locations            Location[]
+  phones               Phone[]
+  contacts             Contact[]
+  funding              Funding[]
+  identifiers          OrganizationIdentifier[]
+  additionalWebsites   Url[]
+
+  @@map("organizations")
+}
+
+model Program {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  name           String
+  alternateName  String?      @map("alternate_name")
+  description    String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  services       Service[]
+
+  @@index([organizationId])
+  @@map("programs")
+}
+
+model Service {
+  id                     String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId         String              @map("organization_id") @db.Uuid
+  programId              String?             @map("program_id") @db.Uuid
+  name                   String
+  alternateName          String?             @map("alternate_name")
+  description            String?
+  url                    String?
+  email                  String?
+  status                 ServiceStatus
+  interpretationServices String?             @map("interpretation_services")
+  applicationProcess     String?             @map("application_process")
+  feesDescription        String?             @map("fees_description")
+  waitTime               String?             @map("wait_time")
+  fees                   String?
+  accreditations         String?
+  eligibilityDescription String?             @map("eligibility_description")
+  minimumAge             Int?                @map("minimum_age")
+  maximumAge             Int?                @map("maximum_age")
+  assuredDate            DateTime?           @map("assured_date") @db.Date
+  assurerEmail           String?             @map("assurer_email")
+  licenses               String?
+  alert                  String?
+  lastModified           DateTime?           @map("last_modified")
+  organization           Organization        @relation(fields: [organizationId], references: [id])
+  program                Program?            @relation(fields: [programId], references: [id])
+  serviceAtLocations     ServiceAtLocation[]
+  phones                 Phone[]
+  contacts               Contact[]
+  schedules              Schedule[]
+  serviceAreas           ServiceArea[]
+  funding                Funding[]
+  languages              Language[]
+  requiredDocuments      RequiredDocument[]
+  costOptions            CostOption[]
+  capacities             ServiceCapacity[]
+  additionalUrls         Url[]
+
+  @@index([organizationId])
+  @@index([programId])
+  @@index([status])
+  @@index([lastModified])
+  @@map("services")
+}
+
+model ServiceAtLocation {
+  id           String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  serviceId    String        @map("service_id") @db.Uuid
+  locationId   String        @map("location_id") @db.Uuid
+  description  String?
+  service      Service       @relation(fields: [serviceId], references: [id])
+  location     Location      @relation(fields: [locationId], references: [id])
+  phones       Phone[]
+  contacts     Contact[]
+  schedules    Schedule[]
+  serviceAreas ServiceArea[]
+
+  @@unique([serviceId, locationId])
+  @@map("service_at_locations")
+}
+
+model Location {
+  id                     String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  locationType           LocationType        @map("location_type")
+  url                    String?
+  organizationId         String?             @map("organization_id") @db.Uuid
+  name                   String?
+  alternateName          String?             @map("alternate_name")
+  description            String?
+  transportation         String?
+  latitude               Decimal?            @db.Decimal
+  longitude              Decimal?            @db.Decimal
+  externalIdentifier     String?             @map("external_identifier")
+  externalIdentifierType String?             @map("external_identifier_type")
+  organization           Organization?       @relation(fields: [organizationId], references: [id])
+  addresses              Address[]
+  phones                 Phone[]
+  contacts               Contact[]
+  schedules              Schedule[]
+  languages              Language[]
+  accessibility          Accessibility[]
+  serviceAtLocations     ServiceAtLocation[]
+
+  @@index([organizationId])
+  @@map("locations")
+}
+
+model Phone {
+  id                  String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  locationId          String?            @map("location_id") @db.Uuid
+  serviceId           String?            @map("service_id") @db.Uuid
+  organizationId      String?            @map("organization_id") @db.Uuid
+  contactId           String?            @map("contact_id") @db.Uuid
+  serviceAtLocationId String?            @map("service_at_location_id") @db.Uuid
+  number              String
+  extension           String?
+  type                String?
+  description         String?
+  location            Location?          @relation(fields: [locationId], references: [id])
+  service             Service?           @relation(fields: [serviceId], references: [id])
+  organization        Organization?      @relation(fields: [organizationId], references: [id])
+  contact             Contact?           @relation(fields: [contactId], references: [id])
+  serviceAtLocation   ServiceAtLocation? @relation(fields: [serviceAtLocationId], references: [id])
+  languages           Language[]
+
+  @@index([locationId])
+  @@index([serviceId])
+  @@index([organizationId])
+  @@map("phones")
+}
+
+model Contact {
+  id                  String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId      String?            @map("organization_id") @db.Uuid
+  serviceId           String?            @map("service_id") @db.Uuid
+  serviceAtLocationId String?            @map("service_at_location_id") @db.Uuid
+  locationId          String?            @map("location_id") @db.Uuid
+  name                String?
+  title               String?
+  department          String?
+  email               String?
+  organization        Organization?      @relation(fields: [organizationId], references: [id])
+  service             Service?           @relation(fields: [serviceId], references: [id])
+  serviceAtLocation   ServiceAtLocation? @relation(fields: [serviceAtLocationId], references: [id])
+  location            Location?          @relation(fields: [locationId], references: [id])
+  phones              Phone[]
+
+  @@index([organizationId])
+  @@index([serviceId])
+  @@map("contacts")
+}
+
+model Address {
+  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  locationId    String       @map("location_id") @db.Uuid
+  attention     String?
+  address1      String       @map("address_1")
+  address2      String?      @map("address_2")
+  city          String
+  region        String?
+  stateProvince String       @map("state_province")
+  postalCode    String       @map("postal_code")
+  country       String
+  addressType   LocationType @map("address_type")
+  location      Location     @relation(fields: [locationId], references: [id])
+
+  @@index([locationId])
+  @@map("addresses")
+}
+
+model Schedule {
+  id                  String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  serviceId           String?            @map("service_id") @db.Uuid
+  locationId          String?            @map("location_id") @db.Uuid
+  serviceAtLocationId String?            @map("service_at_location_id") @db.Uuid
+  validFrom           DateTime?          @map("valid_from") @db.Date
+  validTo             DateTime?          @map("valid_to") @db.Date
+  dtstart             DateTime?          @db.Date
+  timezone            Int?
+  until               DateTime?          @db.Date
+  count               Int?
+  wkst                String?
+  freq                String?
+  interval            Int?
+  byday               String?
+  byweekno            String?
+  bymonthday          String?
+  byyearday           String?
+  description         String?
+  opensAt             String?            @map("opens_at")
+  closesAt            String?            @map("closes_at")
+  scheduleLink        String?            @map("schedule_link")
+  attendingType       String?            @map("attending_type")
+  notes               String?
+  service             Service?           @relation(fields: [serviceId], references: [id])
+  location            Location?          @relation(fields: [locationId], references: [id])
+  serviceAtLocation   ServiceAtLocation? @relation(fields: [serviceAtLocationId], references: [id])
+
+  @@index([serviceId])
+  @@index([locationId])
+  @@map("schedules")
+}
+
+model Funding {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String?       @map("organization_id") @db.Uuid
+  serviceId      String?       @map("service_id") @db.Uuid
+  source         String?
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  service        Service?      @relation(fields: [serviceId], references: [id])
+
+  @@index([organizationId])
+  @@index([serviceId])
+  @@map("funding")
+}
+
+model ServiceArea {
+  id                  String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  serviceId           String?            @map("service_id") @db.Uuid
+  serviceAtLocationId String?            @map("service_at_location_id") @db.Uuid
+  name                String?
+  description         String?
+  extent              String?
+  extentType          String?            @map("extent_type")
+  uri                 String?
+  service             Service?           @relation(fields: [serviceId], references: [id])
+  serviceAtLocation   ServiceAtLocation? @relation(fields: [serviceAtLocationId], references: [id])
+
+  @@index([serviceId])
+  @@map("service_areas")
+}
+
+model Language {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  serviceId  String?   @map("service_id") @db.Uuid
+  locationId String?   @map("location_id") @db.Uuid
+  phoneId    String?   @map("phone_id") @db.Uuid
+  name       String?
+  code       String?
+  note       String?
+  service    Service?  @relation(fields: [serviceId], references: [id])
+  location   Location? @relation(fields: [locationId], references: [id])
+  phone      Phone?    @relation(fields: [phoneId], references: [id])
+
+  @@index([serviceId])
+  @@index([locationId])
+  @@map("languages")
+}
+
+model Accessibility {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  locationId    String   @map("location_id") @db.Uuid
+  accessibility String?
+  details       String?
+  location      Location @relation(fields: [locationId], references: [id])
+
+  @@index([locationId])
+  @@map("accessibility")
+}
+
+model RequiredDocument {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  serviceId String?  @map("service_id") @db.Uuid
+  document  String?
+  uri       String?
+  service   Service? @relation(fields: [serviceId], references: [id])
+
+  @@index([serviceId])
+  @@map("required_documents")
+}
+
+model Taxonomy {
+  id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String
+  description String
+  uri         String?
+  version     String?
+  terms       TaxonomyTerm[]
+
+  @@map("taxonomies")
+}
+
+model TaxonomyTerm {
+  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code           String?
+  name           String
+  description    String
+  parentId       String?        @map("parent_id") @db.Uuid
+  taxonomy       String?
+  language       String?
+  taxonomyId     String?        @map("taxonomy_id") @db.Uuid
+  termUri        String?        @map("term_uri")
+  parent         TaxonomyTerm?  @relation("TaxonomyTermHierarchy", fields: [parentId], references: [id])
+  children       TaxonomyTerm[] @relation("TaxonomyTermHierarchy")
+  taxonomyDetail Taxonomy?      @relation(fields: [taxonomyId], references: [id])
+  attributes     Attribute[]
+
+  @@index([taxonomyId])
+  @@index([parentId])
+  @@map("taxonomy_terms")
+}
+
+model Attribute {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  linkId         String       @map("link_id") @db.Uuid
+  taxonomyTermId String       @map("taxonomy_term_id") @db.Uuid
+  linkType       String?      @map("link_type")
+  linkEntity     String       @map("link_entity")
+  value          String?
+  label          String?
+  taxonomyTerm   TaxonomyTerm @relation(fields: [taxonomyTermId], references: [id])
+
+  @@index([linkEntity, linkId])
+  @@index([taxonomyTermId])
+  @@map("attributes")
+}
+
+model Metadata {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  resourceId       String   @map("resource_id") @db.Uuid
+  resourceType     String   @map("resource_type")
+  lastActionDate   DateTime @map("last_action_date") @db.Date
+  lastActionType   String   @map("last_action_type")
+  fieldName        String   @map("field_name")
+  previousValue    String   @map("previous_value")
+  replacementValue String   @map("replacement_value")
+  updatedBy        String   @map("updated_by")
+
+  @@index([resourceType, resourceId])
+  @@map("metadata")
+}
+
+model MetaTableDescription {
+  id           String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String?
+  language     String?
+  characterSet String? @map("character_set")
+
+  @@map("meta_table_descriptions")
+}
+
+model CostOption {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  serviceId         String    @map("service_id") @db.Uuid
+  validFrom         DateTime? @map("valid_from") @db.Date
+  validTo           DateTime? @map("valid_to") @db.Date
+  option            String?
+  currency          String?
+  amount            Decimal?  @db.Decimal
+  amountDescription String?   @map("amount_description")
+  service           Service   @relation(fields: [serviceId], references: [id])
+
+  @@index([serviceId])
+  @@map("cost_options")
+}
+
+model OrganizationIdentifier {
+  id               String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId   String?       @map("organization_id") @db.Uuid
+  identifierScheme String?       @map("identifier_scheme")
+  identifierType   String        @map("identifier_type")
+  identifier       String
+  organization     Organization? @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@map("organization_identifiers")
+}
+
+model ServiceCapacity {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  serviceId   String   @map("service_id") @db.Uuid
+  unitId      String   @map("unit_id") @db.Uuid
+  available   Decimal  @db.Decimal
+  maximum     Decimal? @db.Decimal
+  description String?
+  updated     DateTime
+  service     Service  @relation(fields: [serviceId], references: [id])
+  unit        Unit     @relation(fields: [unitId], references: [id])
+
+  @@index([serviceId])
+  @@index([unitId])
+  @@map("service_capacity")
+}
+
+model Unit {
+  id         String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name       String
+  scheme     String?
+  identifier String?
+  uri        String?
+  capacities ServiceCapacity[]
+
+  @@map("units")
+}
+
+model Url {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  label          String?
+  url            String
+  organizationId String?       @map("organization_id") @db.Uuid
+  serviceId      String?       @map("service_id") @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  service        Service?      @relation(fields: [serviceId], references: [id])
+
+  @@index([organizationId])
+  @@index([serviceId])
+  @@map("urls")
 }
