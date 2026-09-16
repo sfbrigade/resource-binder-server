@@ -8,6 +8,7 @@ import User from '#models/user.js';
 
 export default fp(async function (fastify) {
   const auth = createAuth(fastify.prisma);
+  fastify.decorate('auth', auth);
   registerAuthRoutes(fastify, auth);
   fastify.decorateRequest('user', null);
   fastify.addHook('onRequest', async (request, reply) => {
