@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { getCurrentAdapter, queueAfterTransactionHook } from '@better-auth/core/context';
@@ -7,6 +8,8 @@ import { admin } from 'better-auth/plugins';
 import { defaultAc, userAc } from 'better-auth/plugins/admin/access';
 import User from '#models/user.js';
 import mailer from '#lib/mailer.js';
+
+const EMAIL_VERIFICATION_EXPIRES_IN = 60 * 60;
 
 async function sendAuthEmail (email, template, locals) {
   if (process.env.SMTP_ENABLED !== 'true') {
@@ -37,7 +40,7 @@ const invitations = {
 
 // Construct after configuration is loaded; tests supply their own database.
 export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = process.env.BETTER_AUTH_SECRET } = {}) {
-  return betterAuth({
+  const auth = betterAuth({
     baseURL,
     secret,
     trustedOrigins: [new URL(baseURL).origin],
@@ -74,12 +77,35 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
       sendResetPassword: ({ user, url }) => sendAuthEmail(user.email, 'password-reset', { firstName: user.firstName, url }),
     },
     emailVerification: {
+      expiresIn: EMAIL_VERIFICATION_EXPIRES_IN,
       sendOnSignUp: true,
       autoSignInAfterVerification: false,
-      sendVerificationEmail: ({ user, url }) => queueAfterTransactionHook(() => sendAuthEmail(user.email, 'verification', { firstName: user.firstName, url })),
+      sendVerificationEmail: ({ user, url, token }) => queueAfterTransactionHook(async () => {
+        // Indirection makes Better Auth's signed verification links revocable.
+        const identifier = `email-verification:${user.id}:${randomUUID()}`;
+        const { internalAdapter } = await auth.$context;
+        await internalAdapter.createVerificationValue({
+          identifier,
+          value: token,
+          expiresAt: new Date(Date.now() + EMAIL_VERIFICATION_EXPIRES_IN * 1000),
+        });
+        const verificationURL = new URL(url);
+        verificationURL.searchParams.set('token', identifier);
+        await sendAuthEmail(user.email, 'verification', { firstName: user.firstName, url: verificationURL.toString() });
+      }),
     },
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
+        if (ctx.path === '/verify-email') {
+          const token = ctx.query?.token;
+          const verification = typeof token === 'string' && token.startsWith('email-verification:')
+            ? await ctx.context.internalAdapter.findVerificationValue(token)
+            : null;
+          if (!verification || verification.expiresAt <= new Date()) {
+            throw new APIError('UNAUTHORIZED', { code: 'INVALID_TOKEN', message: 'Verification link is invalid or expired.' });
+          }
+          return { context: { query: { ...ctx.query, token: verification.value } } };
+        }
         if (ctx.path === '/admin/create-user' && ctx.body?.password) {
           const result = User.PasswordSchema.safeParse(ctx.body.password);
           if (!result.success) throw new APIError('BAD_REQUEST', { message: result.error.issues[0].message });
@@ -147,6 +173,10 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
                   { field: 'identifier', operator: 'starts_with', value: 'reset-password:' },
                 ],
               });
+              await adapter.deleteMany({
+                model: 'verification',
+                where: [{ field: 'identifier', operator: 'starts_with', value: `email-verification:${ctx.body.userId}:` }],
+              });
               await ctx.context.internalAdapter.deleteUserSessions(ctx.body.userId);
               return { data: { ...data, emailVerified: false } };
             }
@@ -188,7 +218,7 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
         },
         update: {
           async after (account, ctx) {
-            if (ctx?.path === '/admin/set-user-password') await ctx.context.internalAdapter.deleteUserSessions(account.userId);
+            if (ctx?.path === '/admin/set-user-password') await ctx.context.internalAdapter.deleteUserSessions(ctx.body.userId);
           },
         },
       },
@@ -205,4 +235,5 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
     session: { expiresIn: 7 * 24 * 60 * 60, updateAge: 24 * 60 * 60 },
     rateLimit: { enabled: true, storage: 'database' },
   });
+  return auth;
 }
