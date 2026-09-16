@@ -1,19 +1,20 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { authenticate, build, nodemailerMock } from '#test/helper.js';
-import { mailToken, password, post, signUp } from '#test/auth-helper.js';
+import { authenticate, build, mailToken, nodemailerMock, password } from '#test/helper.js';
 import { options } from '../../../app.js';
 
 test('application Better Auth cutover', async (t) => {
   const app = await build(t);
 
   await t.test('registration, verification, native magic exchange and logout reach protected routes', async () => {
-    process.env.SMTP_ENABLED = 'true';
-    process.env.VITE_FEATURE_REGISTRATION = 'true';
-    const signup = await signUp(app);
+    const signup = await app.inject().post('/api/auth/sign-up/email')
+      .headers({ origin: process.env.BASE_URL })
+      .payload({ firstName: 'Test', lastName: 'Person', email: 'person@example.com', password });
     assert.equal(signup.statusCode, 200, signup.body);
     assert.equal((await app.inject(`/api/auth/verify-email?token=${mailToken(nodemailerMock.mock)}`)).statusCode, 200);
-    assert.equal((await post(app, '/sign-in/magic-link', { email: 'person@example.com' })).statusCode, 200);
+    assert.equal((await app.inject().post('/api/auth/sign-in/magic-link')
+      .headers({ origin: process.env.BASE_URL })
+      .payload({ email: 'person@example.com' })).statusCode, 200);
     const token = mailToken(nodemailerMock.mock);
     const landing = await app.inject(`/auth/magic-link?token=${token}`);
     assert.equal(landing.statusCode, 200);
@@ -25,8 +26,12 @@ test('application Better Auth cutover', async (t) => {
     assert.equal(profile.json().id, signup.json().user.id);
     assert.equal(profile.json().isAdmin, false);
     assert.equal((await app.inject({ url: '/api/users', headers })).statusCode, 403);
-    assert.equal((await post(app, '/sign-in/email', { email: 'person@example.com', password })).statusCode, 200);
-    assert.equal((await post(app, '/sign-out', {}, headers)).statusCode, 200);
+    assert.equal((await app.inject().post('/api/auth/sign-in/email')
+      .headers({ origin: process.env.BASE_URL })
+      .payload({ email: 'person@example.com', password })).statusCode, 200);
+    assert.equal((await app.inject().post('/api/auth/sign-out')
+      .headers({ origin: process.env.BASE_URL, ...headers })
+      .payload({})).statusCode, 200);
     assert.equal((await app.inject({ url: '/api/users/me', headers })).statusCode, 204);
     assert.equal((await app.inject({ url: `/api/users/${signup.json().user.id}`, headers })).statusCode, 401);
   });
@@ -35,7 +40,9 @@ test('application Better Auth cutover', async (t) => {
     const adminHeaders = await authenticate(app, 'admin.user@test.com', 'test');
     const headers = await authenticate(app, 'regular.user@test.com', 'test');
     const userId = 'dab5dff3-360d-4dbb-98dd-1990dfb5c4c5';
-    assert.equal((await post(app, '/admin/revoke-user-sessions', { userId }, adminHeaders)).statusCode, 200);
+    assert.equal((await app.inject().post('/api/auth/admin/revoke-user-sessions')
+      .headers({ origin: process.env.BASE_URL, ...adminHeaders })
+      .payload({ userId })).statusCode, 200);
     assert.equal((await app.inject({ url: `/api/users/${userId}`, headers })).statusCode, 401);
     const expired = await authenticate(app, 'regular.user@test.com', 'test');
     await app.prisma.session.updateMany({ where: { userId }, data: { expiresAt: new Date(0) } });
@@ -44,9 +51,13 @@ test('application Better Auth cutover', async (t) => {
 
   await t.test('legacy endpoints and untrusted browser origins cannot authenticate', async () => {
     for (const path of ['/login', '/register']) {
-      assert.equal((await post(app, path, { email: 'regular.user@test.com', password: 'test' })).statusCode, 404);
+      assert.equal((await app.inject().post(`/api/auth${path}`)
+        .headers({ origin: process.env.BASE_URL })
+        .payload({ email: 'regular.user@test.com', password: 'test' })).statusCode, 404);
     }
-    const response = await post(app, '/sign-in/email', { email: 'regular.user@test.com', password: 'test' }, { origin: 'https://untrusted.example' });
+    const response = await app.inject().post('/api/auth/sign-in/email')
+      .headers({ origin: 'https://untrusted.example' })
+      .payload({ email: 'regular.user@test.com', password: 'test' });
     assert.equal(response.statusCode, 403);
   });
 

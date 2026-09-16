@@ -29,6 +29,8 @@ import { configureMailer } from '#lib/mailer.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const AppPath = path.join(__dirname, '..', 'app.js');
+const password = 'SecurePassword123!';
+const authSecret = 'test-only-secret-with-at-least-32-characters';
 
 // Dependency mocks for testing
 configureMailer(nodemailerMock);
@@ -43,6 +45,20 @@ function config () {
 
 // automatically build and tear down our instance
 async function build (t) {
+  const authEnv = {
+    SMTP_ENABLED: process.env.SMTP_ENABLED,
+    VITE_FEATURE_REGISTRATION: process.env.VITE_FEATURE_REGISTRATION,
+  };
+  t.beforeEach(() => {
+    process.env.SMTP_ENABLED = 'true';
+    process.env.VITE_FEATURE_REGISTRATION = 'true';
+  });
+  t.after(() => {
+    for (const [key, value] of Object.entries(authEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
   // disable the ryuk cleanup container, cannot connect from the compose network
   process.env.TESTCONTAINERS_RYUK_DISABLED = 'true';
   const compose = YAML.parse(await fs.readFile(path.join(__dirname, '../..', 'compose.yml'), 'utf8'));
@@ -72,7 +88,7 @@ async function build (t) {
     await prisma.account.create({ data: { userId: user.id, accountId: user.id, providerId: 'credential', password } });
   }
   process.env.BASE_URL = 'http://localhost:3333';
-  process.env.BETTER_AUTH_SECRET = 'test-only-secret-with-at-least-32-characters';
+  process.env.BETTER_AUTH_SECRET = authSecret;
   // configure test database url
   process.env.DATABASE_URL = `postgresql://${startedDbContainer.getUsername()}:${startedDbContainer.getPassword()}@${startedDbContainer.getHost()}:${startedDbContainer.getPort()}/${startedDbContainer.getDatabase()}`;
   t.prisma = createClient(process.env.DATABASE_URL);
@@ -148,6 +164,40 @@ async function authenticate (app, email, password) {
   };
 }
 
+function mailToken (mail) {
+  const text = mail.getSentMail().at(-1).text;
+  const url = new URL(text.match(/http[^\s]+/)[0]);
+  return url.searchParams.get('token');
+}
+
+function mockResetTokenDeletionFailure (t, adapter) {
+  const deleteMany = adapter.deleteMany.bind(adapter);
+  return t.mock.method(adapter, 'deleteMany', async (options) => {
+    if (options.model === 'verification' && options.where.some(({ field, value }) => field === 'identifier' && value === 'reset-password:')) {
+      throw new Error('Simulated reset-token deletion failure');
+    }
+    return deleteMany(options);
+  });
+}
+
+async function verifiedUser (app, email = 'person@example.com') {
+  const signup = await app.inject().post('/api/auth/sign-up/email')
+    .headers({ origin: process.env.BASE_URL })
+    .payload({ firstName: 'Test', lastName: 'Person', email, password });
+  if (signup.statusCode !== 200) throw new Error(`Signup failed: ${signup.body}`);
+  const verification = await app.inject().get(`/api/auth/verify-email?token=${mailToken(nodemailerMock.mock)}`);
+  if (verification.statusCode !== 200) throw new Error(`Verification failed: ${verification.statusCode}`);
+  return { user: signup.json().user, headers: await authenticate(app, email, password) };
+}
+
+async function verifiedAdmin (app) {
+  const email = 'admin.user@test.com';
+  return {
+    user: await app.prisma.user.findUnique({ where: { email } }),
+    headers: await authenticate(app, email, 'test'),
+  };
+}
+
 function sleep (ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -167,8 +217,14 @@ function assetExists (assetPath) {
 export {
   assetExists,
   authenticate,
+  authSecret,
   build,
   config,
+  mailToken,
+  mockResetTokenDeletionFailure,
   nodemailerMock,
+  password,
   upload,
+  verifiedAdmin,
+  verifiedUser,
 };

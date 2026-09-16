@@ -1,12 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import * as nodemailerMock from 'nodemailer-mock';
+import { build, mailToken, nodemailerMock, password } from '#test/helper.js';
+import { createAuth } from '#lib/auth.js';
 import { configureMailer } from '#lib/mailer.js';
-import { buildAuth, mailToken, password } from './auth-helper.js';
 
 test('first-admin verification email', async (t) => {
-  const { app, auth, prisma, mail } = await buildAuth(t);
+  const app = await build(t);
+  const { prisma } = app;
+  const mail = nodemailerMock.mock;
 
   for (const [name, relativePath] of [['repository root', '../../'], ['server directory', '../']]) {
     await t.test(`renders and verifies when invoked from the ${name}`, async () => {
@@ -14,6 +16,7 @@ test('first-admin verification email', async (t) => {
       try {
         process.chdir(fileURLToPath(new URL(relativePath, import.meta.url)));
         configureMailer(nodemailerMock);
+        const auth = createAuth(prisma);
         const email = 'first-admin@example.com';
         const { user } = await auth.api.createUser({
           body: { name: 'First Admin', email, password, role: 'admin', data: { firstName: 'First', lastName: 'Admin' } },
