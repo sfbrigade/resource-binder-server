@@ -104,10 +104,9 @@ in URLs, analytics, application logs, or plain preferences.
   a new password and submits `{token, newPassword}` to `POST /api/auth/reset-password`.
 - `POST /api/auth/change-password` accepts `{currentPassword, newPassword,
   revokeOtherSessions: true}` with authentication.
-- `POST /api/auth/change-email` accepts `{newEmail}` with authentication. The
-  existing email stays in place until the new address is verified.
 - Password resets and admin credential changes revoke existing sessions.
 - Application profile updates use `PATCH /api/users/:id` for names/photos only.
+  Self-serve and admin email-change endpoints are not available.
 
 ## Administration
 
@@ -116,14 +115,12 @@ Only Better Auth's `admin` role can perform administrative actions:
 | Action | POST endpoint | Body |
 | --- | --- | --- |
 | Set password | `/api/auth/admin/set-user-password` | `{userId, newPassword}` |
-| Change email | `/api/auth/admin/update-user` | `{userId, data: {email}}` |
 | Set role | `/api/auth/admin/set-role` | `{userId, role: "admin" or "user"}` |
 | Deactivate/reactivate | `/api/auth/admin/ban-user`, `/api/auth/admin/unban-user` | `{userId}` |
 | Revoke sessions | `/api/auth/admin/revoke-user-sessions` | `{userId}` |
 
-An admin email change takes effect immediately, sets `emailVerified=false`, revokes
-sessions, and sends verification. Supplying `emailVerified=true` is rejected.
-Impersonation, account deletion, and HTTP admin account creation are not permitted.
+Impersonation, account deletion, HTTP admin account creation, and email changes
+are not permitted.
 The first-admin command uses Better Auth's server API and requires email verification.
 
 ## Mobile/domain setup (separate work)
