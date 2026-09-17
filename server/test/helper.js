@@ -45,6 +45,18 @@ function config () {
 
 // automatically build and tear down our instance
 async function build (t) {
+  const cleanups = [];
+  t.after(async () => {
+    const errors = [];
+    for (const cleanup of cleanups.toReversed()) {
+      try {
+        await cleanup();
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+    if (errors.length) throw new AggregateError(errors, 'Test resource cleanup failed');
+  });
   const authEnv = {
     SMTP_ENABLED: process.env.SMTP_ENABLED,
     VITE_FEATURE_REGISTRATION: process.env.VITE_FEATURE_REGISTRATION,
@@ -68,11 +80,13 @@ async function build (t) {
     dbContainer = dbContainer.withNetworkMode('full-stack-starter');
   }
   const startedDbContainer = await dbContainer.start();
+  cleanups.push(() => startedDbContainer.stop());
   // set up the default template (template1) with the schema and fixtures
   const TEMPLATE_DATABASE_URL = `postgresql://${startedDbContainer.getUsername()}:${startedDbContainer.getPassword()}@${startedDbContainer.getHost()}:${startedDbContainer.getPort()}/template1`;
   // run the migrations
   await util.promisify(exec)(`DATABASE_URL=${TEMPLATE_DATABASE_URL} npx prisma migrate deploy`);
   const prisma = createClient(TEMPLATE_DATABASE_URL);
+  cleanups.push(() => prisma.$disconnect());
   // load fixtures
   const loader = new Loader();
   const resolver = new Resolver();
@@ -92,6 +106,7 @@ async function build (t) {
   // configure test database url
   process.env.DATABASE_URL = `postgresql://${startedDbContainer.getUsername()}:${startedDbContainer.getPassword()}@${startedDbContainer.getHost()}:${startedDbContainer.getPort()}/${startedDbContainer.getDatabase()}`;
   t.prisma = createClient(process.env.DATABASE_URL);
+  cleanups.push(() => t.prisma.$disconnect());
 
   // set up a new storage container
   let storageContainer = new GenericContainer(compose.services.storage.image)
@@ -101,6 +116,7 @@ async function build (t) {
     storageContainer = storageContainer.withNetworkMode('full-stack-starter');
   }
   const startedStorageContainer = await storageContainer.start();
+  cleanups.push(() => startedStorageContainer.stop());
   process.env.AWS_S3_ACCESS_KEY_ID = 'minioadmin';
   process.env.AWS_S3_SECRET_ACCESS_KEY = 'minioadmin';
   process.env.AWS_S3_BUCKET = 'app';
@@ -115,6 +131,7 @@ async function build (t) {
   // are exposed for testing purposes, this is
   // different from the production setup
   const app = await helper.build(argv, { ...config(), prisma: t.prisma });
+  cleanups.push(() => app.close());
 
   // recreate the database from the template created above
   async function recreateDb () {
@@ -135,14 +152,6 @@ async function build (t) {
     await s3.deleteObjects('_test/');
     // reset test database after each test
     return recreateDb();
-  });
-
-  // tear down our app and the db container after we are done
-  t.after(async () => {
-    await app.close();
-    await prisma.$disconnect();
-    await startedDbContainer.stop();
-    await startedStorageContainer.stop();
   });
 
   return app;
