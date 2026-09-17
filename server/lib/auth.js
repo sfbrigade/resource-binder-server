@@ -144,11 +144,7 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
           },
         },
         update: {
-          before (data, ctx) {
-            // Magic links are sign-in only and must not mark an unverified email as verified.
-            if (ctx?.path === '/magic-link/verify' && data.emailVerified) {
-              throw new APIError('FORBIDDEN', { message: 'Verify your email before signing in.' });
-            }
+          before (data) {
             if (typeof data.banned === 'boolean') return { data: { ...data, deactivatedAt: data.banned ? new Date() : null } };
           },
         },
@@ -164,13 +160,6 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
         },
       },
       account: {
-        delete: {
-          before (account, ctx) {
-            // Magic links are sign-in only, including links issued before the
-            // email became unverified. Preserve the password account.
-            if (ctx?.path === '/magic-link/verify') throw new APIError('FORBIDDEN', { message: 'Verify your email before signing in.' });
-          },
-        },
         create: {
           async before (account, ctx) {
             await deleteResetTokensBeforeCredentialWrite(ctx);
@@ -206,10 +195,14 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
       disableSignUp: true,
       expiresIn: 300,
       storeToken: 'hashed',
-      async sendMagicLink ({ email, token }) {
+      async sendMagicLink ({ email, token }, ctx) {
         const user = await prisma.user.findUnique({ where: { email } });
-        if (!user?.emailVerified || user.banned) return;
-        await sendAuthEmail(user.email, 'magic-link', { firstName: user.firstName, url: appLink('magic-link', token) });
+        if (!user) return;
+        try {
+          await sendAuthEmail(user.email, 'magic-link', { firstName: user.firstName, url: appLink('magic-link', token) });
+        } catch {
+          ctx.context.logger.warn('Magic-link email delivery failed.');
+        }
       },
     }), admin({
       roles: {
