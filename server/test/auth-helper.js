@@ -10,6 +10,8 @@ import { createAuth } from '#lib/auth.js';
 import { registerAuthRoutes } from '#lib/auth-http.js';
 import { configureMailer } from '#lib/mailer.js';
 
+export const authSecret = 'test-only-secret-with-at-least-32-characters';
+
 export async function buildAuth (t) {
   const container = await new PostgreSqlContainer('postgres:18.3').start();
   t.after(() => container.stop());
@@ -22,7 +24,7 @@ export async function buildAuth (t) {
   configureMailer(nodemailerMock);
   const auth = createAuth(prisma, {
     baseURL: 'http://localhost:3333',
-    secret: 'test-only-secret-with-at-least-32-characters',
+    secret: authSecret,
   });
   const app = Fastify();
   registerAuthRoutes(app, auth);
@@ -56,7 +58,7 @@ export async function signUp (app, email = 'person@example.com', extra = {}) {
   return post(app, '/sign-up/email', { firstName: 'Test', lastName: 'Person', email, password, ...extra });
 }
 
-export async function verifiedUser ({ app, mail }, email = 'person@example.com') {
+export async function verifiedUser ({ app, mail, prisma }, email = 'person@example.com') {
   const signup = await signUp(app, email);
   if (signup.statusCode !== 200) throw new Error(`Signup failed: ${signup.body}`);
   const verification = await app.inject(`/api/auth/verify-email?token=${mailToken(mail)}`);
@@ -64,5 +66,28 @@ export async function verifiedUser ({ app, mail }, email = 'person@example.com')
   const login = await post(app, '/sign-in/email', { email, password });
   if (login.statusCode !== 200) throw new Error(`Login failed: ${login.statusCode}`);
   const cookie = login.cookies.map(({ name, value }) => `${name}=${value}`).join('; ');
+  await prisma.rateLimit.deleteMany();
   return { user: signup.json().user, headers: { cookie }, token: login.json().token };
+}
+
+export function mockResetTokenDeletionFailure (t, adapter) {
+  const deleteMany = adapter.deleteMany.bind(adapter);
+  return t.mock.method(adapter, 'deleteMany', async (options) => {
+    if (options.model === 'verification' && options.where.some(({ field, value }) => field === 'identifier' && value === 'reset-password:')) {
+      throw new Error('Simulated reset-token deletion failure');
+    }
+    return deleteMany(options);
+  });
+}
+
+export async function verifiedAdmin ({ auth, app, mail, prisma }) {
+  const email = 'admin@example.com';
+  const { user } = await auth.api.createUser({ body: { name: 'Test Admin', email, password, role: 'admin', data: { firstName: 'Test', lastName: 'Admin' } } });
+  await auth.api.sendVerificationEmail({ body: { email } });
+  const verified = await app.inject(`/api/auth/verify-email?token=${mailToken(mail)}`);
+  if (verified.statusCode !== 200) throw new Error('Admin verification failed');
+  const login = await post(app, '/sign-in/email', { email, password });
+  if (login.statusCode !== 200) throw new Error(`Admin login failed: ${login.statusCode}`);
+  await prisma.rateLimit.deleteMany();
+  return { user, headers: { cookie: login.cookies.map(({ name, value }) => `${name}=${value}`).join('; ') } };
 }
