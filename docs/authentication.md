@@ -1,6 +1,6 @@
 # Authentication for native apps
 
-The API uses Better Auth 1.7.3 with Prisma/PostgreSQL and the Magic Link, Bearer,
+The API uses Better Auth 1.7.5 with Prisma/PostgreSQL and the Magic Link, Bearer,
 and Admin plugins. Swift and Kotlin clients call HTTPS endpoints directly; they
 do not need a JavaScript SDK. Authentication endpoints live under `/api/auth`.
 
@@ -62,7 +62,8 @@ Magic-link sign-in:
 
 1. `POST /api/auth/sign-in/magic-link` with `{email}`.
 2. Display the same check-email message for every successful `{status: true}`
-   response. Unknown, unverified, or inactive accounts receive no sign-in email.
+   response. Unknown accounts receive no email. Mail delivery failures return the
+   same success response and are logged privately without account or token details.
 3. The emailed HTTPS URL is `/auth/magic-link?token=...`. The operating system
    opens the installed app with this URL.
 4. Extract `token`, then call `GET /api/auth/magic-link/verify?token=...` against
@@ -71,8 +72,12 @@ Magic-link sign-in:
    `session`. Store the `set-auth-token` response header as the bearer credential.
 
 Tokens expire after five minutes, are stored hashed, and can create only one
-session, including concurrent exchanges. Magic links never create accounts or
-verify pending accounts. A normal browser visit to the emailed landing URL
+session, including concurrent exchanges. Magic links never create accounts.
+They can verify existing pending accounts: Better Auth removes credentials and
+sessions created before email ownership was proven. The verified owner can set
+a password through password reset. Receiving a link does not override an active
+ban; Better Auth enforces bans and clears expired temporary bans during sign-in.
+A normal browser visit to the emailed landing URL
 shows instructions without consuming the token. Opening the link on another
 device signs in the app that exchanges it; there is no cross-device handoff.
 
@@ -105,6 +110,9 @@ in URLs, analytics, application logs, or plain preferences.
 - `POST /api/auth/change-password` accepts `{currentPassword, newPassword,
   revokeOtherSessions: true}` with authentication.
 - Password resets and admin credential changes revoke existing sessions.
+- Credential changes invalidate unused password-reset links. A reset already in
+  progress can still complete after an admin password change; these overlapping
+  operations retain Better Auth’s native behavior.
 - Application profile updates use `PATCH /api/users/:id` for names/photos only.
   Self-serve and admin email-change endpoints are not available.
 
