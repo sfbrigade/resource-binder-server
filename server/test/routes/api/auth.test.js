@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { request } from 'node:http';
+import Fastify from 'fastify';
 import { authenticate, build, mailToken, nodemailerMock, password } from '#test/helper.js';
+import { registerAuthRoutes } from '#lib/auth-http.js';
 import { options } from '../../../app.js';
 
 test('application Better Auth cutover', async (t) => {
@@ -61,16 +64,55 @@ test('application Better Auth cutover', async (t) => {
     assert.equal(response.statusCode, 403);
   });
 
-  await t.test('access log serializer excludes link tokens and headers', () => {
-    for (const [url, safeURL] of [
-      ['/auth/magic-link?token=secret', '/auth/magic-link'],
-      ['/api/auth/reset-password/secret?callbackURL=/', '/api/auth/reset-password/[REDACTED]'],
-      ['/api/auth/reset-password/encoded%2Dsecret/', '/api/auth/reset-password/[REDACTED]/'],
-      ['/api/auth/reset-password', '/api/auth/reset-password'],
+  await t.test('raw reset callback paths never log a usable token', async (t) => {
+    assert.equal((await app.inject().post('/api/auth/request-password-reset')
+      .payload({ email: 'regular.user@test.com' })).statusCode, 200);
+    const token = mailToken(nodemailerMock.mock);
+    const logs = [];
+    const loggedApp = Fastify({ logger: { ...options.logger, stream: { write: line => logs.push(line) } } });
+    t.after(() => loggedApp.close());
+    registerAuthRoutes(loggedApp, app.auth);
+    await loggedApp.listen({ host: '127.0.0.1', port: 0 });
+    for (const path of [
+      `/api/auth/reset-password/${token}`,
+      `/api/auth/reset-password/./${token}`,
+      `/api/auth/extra/../reset-password/${token}`,
+      `/api/auth/reset-password/%2e/${token}`,
+      `/api/auth/extra/%2e%2e/reset-password/${token}`,
     ]) {
-      assert.deepEqual(options.logger.serializers.req({ method: 'GET', url, ip: '127.0.0.1', headers: { authorization: 'secret' } }), {
-        method: 'GET', url: safeURL, remoteAddress: '127.0.0.1',
+      // Injection/fetch normalize dot segments before sending; preserve the raw target.
+      const response = await new Promise((resolve, reject) => {
+        request({ host: '127.0.0.1', port: loggedApp.server.address().port, path: `${path}?callbackURL=/auth/reset-password` }, res => {
+          res.resume();
+          res.on('end', () => resolve(res));
+          res.on('error', reject);
+        }).on('error', reject).end();
+      });
+      assert.equal(response.statusCode, 302);
+      assert.equal(new URL(response.headers.location).searchParams.get('token'), token);
+    }
+    assert.equal((await app.inject().post('/api/auth/reset-password')
+      .payload({ token, newPassword: password })).statusCode, 200);
+    assert.equal(logs.map(line => JSON.parse(line)).filter(line => line.req).length, 5);
+    assert.equal(logs.some(line => line.includes(token)), false, 'Reset token leaked into access logs');
+  });
+
+  await t.test('access log serializer excludes link tokens and headers', () => {
+    for (const [url, route] of [
+      ['/auth/magic-link?token=secret', '/auth/magic-link'],
+      ['/api/auth/reset-password/secret?callbackURL=/', '/api/auth/*'],
+      ['/api/auth/reset-password/encoded%2Dsecret/', '/api/auth/*'],
+      ['/api/auth/reset-password', '/api/auth/*'],
+      ['/api/users/123', '/api/users/:id'],
+      ['/unknown/secret'],
+      ['/malformed/%?token=secret'],
+    ]) {
+      assert.deepEqual(options.logger.serializers.req({ method: 'GET', url, routeOptions: { url: route }, ip: '127.0.0.1', headers: { authorization: 'secret' } }), {
+        method: 'GET', url: route || '[unmatched]', remoteAddress: '127.0.0.1',
       });
     }
+    assert.deepEqual(options.logger.serializers.req({ method: 'GET', url: '/raw/secret' }), {
+      method: 'GET', url: '[unmatched]', remoteAddress: undefined,
+    });
   });
 });
