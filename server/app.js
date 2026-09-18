@@ -11,8 +11,8 @@ export const options = {
   logger: {
     serializers: {
       req (request) {
-        // Email-link tokens must never appear in access logs.
-        const url = request.url.split('?')[0].replace(/(\/api\/auth\/reset-password)\/[^/]+/g, '$1/[REDACTED]');
+        // Log the registered route, never raw paths/queries that may contain tokens.
+        const url = request.routeOptions?.url ?? '[unmatched]';
         return { method: request.method, url, remoteAddress: request.ip };
       },
     },
