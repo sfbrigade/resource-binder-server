@@ -82,7 +82,7 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
     url.searchParams.set('token', token);
     return url.toString();
   };
-  return betterAuth({
+  const auth = betterAuth({
     baseURL,
     secret,
     trustedOrigins: [new URL(baseURL).origin, linkOrigin],
@@ -117,7 +117,15 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
       expiresIn: EMAIL_VERIFICATION_EXPIRES_IN,
       sendOnSignUp: true,
       autoSignInAfterVerification: false,
-      sendVerificationEmail: ({ user, token }) => sendAuthEmail(user.email, 'verification', { firstName: user.firstName, url: appLink('verify-email', token) }),
+      async sendVerificationEmail ({ user, token }, request) {
+        try {
+          await sendAuthEmail(user.email, 'verification', { firstName: user.firstName, url: appLink('verify-email', token) });
+        } catch (error) {
+          // Hide account eligibility over HTTP; let server-side callers report delivery failures.
+          if (!request) throw error;
+          (await auth.$context).logger.warn('Verification email delivery failed.');
+        }
+      },
     },
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
@@ -222,4 +230,5 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
     session: { expiresIn: 7 * 24 * 60 * 60, updateAge: 24 * 60 * 60 },
     rateLimit: { enabled: true, storage: 'database' },
   });
+  return auth;
 }

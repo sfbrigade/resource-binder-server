@@ -12,7 +12,8 @@ export const options = {
     serializers: {
       req (request) {
         // Email-link tokens must never appear in access logs.
-        return { method: request.method, url: request.url.split('?')[0], remoteAddress: request.ip };
+        const url = request.url.split('?')[0].replace(/(\/api\/auth\/reset-password)\/[^/]+/g, '$1/[REDACTED]');
+        return { method: request.method, url, remoteAddress: request.ip };
       },
     },
     redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers.set-cookie', 'res.headers.set-auth-token', 'req.body'],

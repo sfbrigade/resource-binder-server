@@ -62,8 +62,15 @@ test('application Better Auth cutover', async (t) => {
   });
 
   await t.test('access log serializer excludes link tokens and headers', () => {
-    assert.deepEqual(options.logger.serializers.req({ method: 'GET', url: '/auth/magic-link?token=secret', ip: '127.0.0.1', headers: { authorization: 'secret' } }), {
-      method: 'GET', url: '/auth/magic-link', remoteAddress: '127.0.0.1',
-    });
+    for (const [url, safeURL] of [
+      ['/auth/magic-link?token=secret', '/auth/magic-link'],
+      ['/api/auth/reset-password/secret?callbackURL=/', '/api/auth/reset-password/[REDACTED]'],
+      ['/api/auth/reset-password/encoded%2Dsecret/', '/api/auth/reset-password/[REDACTED]/'],
+      ['/api/auth/reset-password', '/api/auth/reset-password'],
+    ]) {
+      assert.deepEqual(options.logger.serializers.req({ method: 'GET', url, ip: '127.0.0.1', headers: { authorization: 'secret' } }), {
+        method: 'GET', url: safeURL, remoteAddress: '127.0.0.1',
+      });
+    }
   });
 });
