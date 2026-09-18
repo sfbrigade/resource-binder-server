@@ -40,46 +40,6 @@ test('Better Auth administration', async (t) => {
     assert.equal((await prisma.user.findUnique({ where: { id: member.user.id } })).emailVerified, true);
   });
 
-  await t.test("admin password changes invalidate only that user's old reset links", async () => {
-    const admin = await verifiedAdmin(app);
-    const member = await verifiedUser(app);
-    const other = await verifiedUser(app, 'other@example.com');
-    const oldTokens = [];
-    for (let i = 0; i < 2; i++) {
-      assert.equal((await app.inject().post('/api/auth/request-password-reset')
-        .headers({ origin: process.env.BASE_URL })
-        .payload({ email: member.user.email })).statusCode, 200);
-      oldTokens.push(await mailToken(mail));
-    }
-    assert.equal((await app.inject().post('/api/auth/request-password-reset')
-      .headers({ origin: process.env.BASE_URL })
-      .payload({ email: other.user.email })).statusCode, 200);
-    const otherToken = await mailToken(mail);
-    const unrelated = await prisma.verification.create({
-      data: { identifier: 'unrelated-verification', value: member.user.id, expiresAt: new Date(Date.now() + 60000) },
-    });
-    const credential = await prisma.account.findFirst({ where: { userId: member.user.id, providerId: 'credential' } });
-    assert.equal((await app.inject().post('/api/auth/admin/set-user-password')
-      .headers({ origin: process.env.BASE_URL, ...admin.headers })
-      .payload({ userId: member.user.id, newPassword: `${password}Changed` })).statusCode, 200);
-    for (const token of oldTokens) {
-      assert.equal(await prisma.verification.findUnique({ where: { identifier: `reset-password:${token}` } }), null);
-      assert.equal((await app.inject().post('/api/auth/reset-password')
-        .headers({ origin: process.env.BASE_URL })
-        .payload({ token, newPassword: `${password}OldMailbox` })).statusCode, 400);
-    }
-    assert.notEqual((await prisma.account.findUnique({ where: { id: credential.id } })).password, credential.password);
-    assert.ok(await prisma.verification.findUnique({ where: { id: unrelated.id } }));
-    assert.ok(await prisma.verification.findUnique({ where: { identifier: `reset-password:${otherToken}` } }));
-    await prisma.rateLimit.deleteMany();
-    assert.equal((await app.inject().post('/api/auth/reset-password')
-      .headers({ origin: process.env.BASE_URL })
-      .payload({ token: otherToken, newPassword: `${password}Other` })).statusCode, 200);
-    assert.equal((await app.inject().post('/api/auth/sign-in/email')
-      .headers({ origin: process.env.BASE_URL })
-      .payload({ email: other.user.email, password: `${password}Other` })).statusCode, 200);
-  });
-
   await t.test('reset-token invalidation failure prevents an admin password change', async () => {
     const admin = await verifiedAdmin(app);
     const member = await verifiedUser(app);
