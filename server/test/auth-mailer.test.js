@@ -1,14 +1,48 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import { build, mailToken, nodemailerMock, password } from '#test/helper.js';
+import { build, mailToken, nodemailerMock, password, waitForMail } from '#test/helper.js';
 import { createAuth } from '#lib/auth.js';
-import { configureMailer } from '#lib/mailer.js';
+import mailer, { configureMailer } from '#lib/mailer.js';
 
-test('first-admin verification email', async (t) => {
+test('verification email delivery', async (t) => {
   const app = await build(t);
   const { prisma } = app;
   const mail = nodemailerMock.mock;
+
+  await t.test('public verification resends hide mail failures while server calls still fail', async () => {
+    const email = 'pending@example.com';
+    assert.equal((await app.inject().post('/api/auth/sign-up/email')
+      .headers({ origin: process.env.BASE_URL })
+      .payload({ firstName: 'Pending', lastName: 'Person', email, password })).statusCode, 200);
+    await waitForMail();
+    const { logger } = await app.auth.$context;
+    const warnings = t.mock.method(logger, 'warn', () => {});
+    const sending = t.mock.method(mailer, 'send', async () => {
+      throw new Error(`Transport failed for ${email} with secret-token`);
+    });
+    try {
+      for (const enabled of [false, true]) {
+        process.env.SMTP_ENABLED = String(enabled);
+        for (const address of [email, 'unknown@example.com', 'regular.user@test.com']) {
+          await prisma.rateLimit.deleteMany();
+          const response = await app.inject().post('/api/auth/send-verification-email')
+            .headers({ origin: process.env.BASE_URL }).payload({ email: address });
+          assert.equal(response.statusCode, 200, response.body);
+          assert.deepEqual(response.json(), { status: true });
+        }
+        await assert.rejects(app.auth.api.sendVerificationEmail({ body: { email } }), { statusCode: 503 });
+      }
+      assert.deepEqual(warnings.mock.calls.map(call => call.arguments), [
+        ['Authentication email delivery failed.'],
+        ['Authentication email delivery failed.'],
+      ]);
+    } finally {
+      sending.mock.restore();
+      warnings.mock.restore();
+      process.env.SMTP_ENABLED = 'true';
+    }
+  });
 
   for (const [name, relativePath] of [['repository root', '../../'], ['server directory', '../']]) {
     await t.test(`renders and verifies when invoked from the ${name}`, async () => {
