@@ -57,6 +57,9 @@ status. A verification email opens `/auth/verify-email?token=...`; the app calls
 Verification expires after one hour and does not automatically sign in.
 
 `POST /api/auth/send-verification-email` with `{email}` requests a replacement.
+Unauthenticated requests return the same success response for pending, verified,
+and unknown accounts, including when email delivery fails. Delivery failures are
+logged privately; direct server API calls still report them to the caller.
 If sending a signup email fails after commit, the account remains unverified and
 the invitation remains associated with that account. Request another verification
 email; do not attempt to recreate the account. No database transaction waits on
