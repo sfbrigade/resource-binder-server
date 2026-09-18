@@ -7,7 +7,18 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Pass --options via CLI arguments in command to enable these options.
-export const options = {};
+export const options = {
+  logger: {
+    serializers: {
+      req (request) {
+        // Log the registered route, never raw paths/queries that may contain tokens.
+        const url = request.routeOptions?.url ?? '[unmatched]';
+        return { method: request.method, url, remoteAddress: request.ip };
+      },
+    },
+    redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers.set-cookie', 'res.headers.set-auth-token', 'req.body'],
+  },
+};
 
 export default async function (fastify, opts) {
   // Place here your custom code!

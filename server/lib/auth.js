@@ -70,13 +70,19 @@ const invitations = {
 
 // Construct after configuration is loaded; tests supply their own database.
 export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = process.env.BETTER_AUTH_SECRET } = {}) {
+  if (!secret || secret.length < 32 || secret.startsWith('replace-with-')) {
+    throw new Error('Set BETTER_AUTH_SECRET to a private random value of at least 32 characters.');
+  }
   const linkOrigin = new URL(process.env.AUTH_LINK_BASE_URL || baseURL).origin;
+  if (process.env.NODE_ENV === 'production' && [baseURL, linkOrigin].some(url => new URL(url).protocol !== 'https:')) {
+    throw new Error('Authentication origins must use HTTPS in production.');
+  }
   const appLink = (action, token) => {
     const url = new URL(`/auth/${action}`, linkOrigin);
     url.searchParams.set('token', token);
     return url.toString();
   };
-  return betterAuth({
+  const auth = betterAuth({
     baseURL,
     secret,
     trustedOrigins: [new URL(baseURL).origin, linkOrigin],
@@ -111,7 +117,15 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
       expiresIn: EMAIL_VERIFICATION_EXPIRES_IN,
       sendOnSignUp: true,
       autoSignInAfterVerification: false,
-      sendVerificationEmail: ({ user, token }) => sendAuthEmail(user.email, 'verification', { firstName: user.firstName, url: appLink('verify-email', token) }),
+      async sendVerificationEmail ({ user, token }, request) {
+        try {
+          await sendAuthEmail(user.email, 'verification', { firstName: user.firstName, url: appLink('verify-email', token) });
+        } catch (error) {
+          // Hide account eligibility over HTTP; let server-side callers report delivery failures.
+          if (!request) throw error;
+          (await auth.$context).logger.warn('Verification email delivery failed.');
+        }
+      },
     },
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
@@ -216,4 +230,5 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
     session: { expiresIn: 7 * 24 * 60 * 60, updateAge: 24 * 60 * 60 },
     rateLimit: { enabled: true, storage: 'database' },
   });
+  return auth;
 }

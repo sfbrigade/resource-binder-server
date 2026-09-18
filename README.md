@@ -11,6 +11,34 @@ This repository contains a "starter" project for web application development in 
 - Node.js
 - Postgres
 
+## Authentication setup and migration
+
+Authentication uses [Better Auth](https://better-auth.com/) under `/api/auth`, with
+the Magic Link, Bearer, and Admin plugins. Refer to its documentation for standard APIs.
+
+Before starting the server, configure `server/.env` (copy `server/example.env` if needed):
+
+- `BETTER_AUTH_SECRET`: generate a private secret with `openssl rand -base64 32`.
+  The example placeholder deliberately fails startup. Never include this secret in a client app.
+- `BASE_URL`: the public API origin; HTTPS is required in production.
+- `AUTH_LINK_BASE_URL`: optional email-link origin, defaulting to `BASE_URL`.
+  A separate origin must also serve the `/auth/*` landing routes.
+- `SMTP_ENABLED=true` and the existing mail settings are required for signup and
+  email delivery. Local development uses Mailcatcher.
+- `VITE_FEATURE_REGISTRATION`: when not `true`, signup requires a matching, unused
+  invitation. Signup also requires `firstName` and `lastName`.
+
+Email links open `/auth/*` instruction pages without consuming tokens. Native apps
+must handle those links and exchange their tokens with the API; iOS/Android domain
+associations and app handlers are separate work. Magic links only sign in existing
+accounts. Email-change endpoints are disabled.
+
+The cutover removes legacy password/reset fields and sessions are not imported.
+Existing development users must verify their email and reset their password. This
+is not a production password migration or a reversible rollback. The React
+authentication screens still call retired endpoints and need a separate migration.
+Server startup applies the checked-in migrations; it never resets the database.
+
 ## One-time Setup
 
 1. On Github, "Fork" this git repo to your own account so that you have your own copy.
@@ -58,10 +86,12 @@ This repository contains a "starter" project for web application development in 
    Once you're logged in, you will be in a new shell for the container where you can run the following command:
 
    ```
-   bin/create-admin.js Firstname Lastname email password
+   node server/bin/create-admin.js Firstname Lastname email 'StrongPassword123!'
    ```
 
-   Put in your name and email address and a password. This will create a first admin user in the database.
+   Put in your name and email address and a strong password. This creates the first admin through Better Auth;
+   verify the emailed link before signing in. Without a native app, copy the token from Mailcatcher and
+   open `/api/auth/verify-email?token=...` on the API server.
 
 7. To stop the server, press CONTROL-C in the window with the running server.
    If it is successful, you will see something like this:
@@ -133,6 +163,10 @@ to a running server container as describe above (`docker compose exec server bas
 `npm test`. The server tests use the Testcontainers library to automatically launch test databases and
 storage servers for testing- if tests terminate unexpectedly, you may have dangling/orphan containers
 running. Use `docker ps` to list and check running containers.
+
+From the repository root on your host, use `CI=true npm test -w server` with Docker
+available. The tests use disposable databases and mocked mail, leaving development
+data untouched and sending no real email.
 
 ## Shell Command Quick Reference
 
