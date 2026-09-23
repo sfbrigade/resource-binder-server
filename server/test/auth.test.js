@@ -40,12 +40,14 @@ test('Better Auth passwords and invitations', async (t) => {
   });
 
   await t.test('password validation and reset revoke old sessions', async () => {
-    assert.equal((await signUp(app, 'weak@example.com', { password: 'weakpassword' })).statusCode, 400);
+    assert.equal((await signUp(app, 'weak@example.com', { password: 'short' })).statusCode, 400);
+    assert.equal((await signUp(app, 'long@example.com', { password: 'a'.repeat(129) })).statusCode, 400);
     const { headers } = await verifiedUser(fixture);
     const request = await post(app, '/request-password-reset', { email: 'person@example.com' });
     assert.equal(request.statusCode, 200, request.body);
     const token = mailToken(mail);
-    assert.equal((await post(app, '/reset-password', { token, newPassword: 'weakpassword' })).statusCode, 400);
+    assert.equal((await post(app, '/reset-password', { token, newPassword: 'short' })).statusCode, 400);
+    assert.equal((await post(app, '/reset-password', { token, newPassword: 'a'.repeat(129) })).statusCode, 400);
     assert.equal((await post(app, '/reset-password', { token, newPassword: `${password}New` })).statusCode, 200);
     assert.equal((await app.inject({ url: '/api/auth/get-session', headers })).json(), null);
     assert.equal((await post(app, '/reset-password', { token, newPassword: password })).statusCode, 400);

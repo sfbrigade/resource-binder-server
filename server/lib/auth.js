@@ -8,8 +8,6 @@ import User from '#models/user.js';
 import mailer from '#lib/mailer.js';
 
 const EMAIL_VERIFICATION_EXPIRES_IN = 60 * 60;
-const MIN_PASSWORD_LENGTH = 8;
-const MAX_PASSWORD_LENGTH = 128;
 const CREDENTIAL_WRITE_PATHS = ['/reset-password', '/change-password', '/admin/set-user-password'];
 
 async function sendAuthEmail (email, template, locals) {
@@ -21,11 +19,6 @@ async function sendAuthEmail (email, template, locals) {
   } catch {
     throw new APIError('SERVICE_UNAVAILABLE', { message: 'Email delivery failed. Please try again.' });
   }
-}
-
-function requireValidPassword (password) {
-  const result = User.PasswordSchema.safeParse(password);
-  if (!result.success) throw new APIError('BAD_REQUEST', { message: result.error.issues[0].message });
 }
 
 function credentialWriteUserId (ctx) {
@@ -85,15 +78,12 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
       additionalFields: {
         firstName: { type: 'string', required: true },
         lastName: { type: 'string', required: true },
-        deactivatedAt: { type: 'date', required: false, input: false },
       },
     },
     emailAndPassword: {
       enabled: true,
       requireEmailVerification: true,
       autoSignIn: false,
-      minPasswordLength: MIN_PASSWORD_LENGTH,
-      maxPasswordLength: MAX_PASSWORD_LENGTH,
       customSyntheticUser: ({ coreFields, additionalFields, id }) => ({
         ...coreFields, role: 'user', banned: false, banReason: null, banExpires: null, ...additionalFields, id,
       }),
@@ -109,11 +99,9 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
     },
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
-        if (ctx.path === '/admin/create-user' && ctx.body?.password) requireValidPassword(ctx.body.password);
-        if (CREDENTIAL_WRITE_PATHS.includes(ctx.path)) requireValidPassword(ctx.body?.newPassword);
         if (ctx.path !== '/sign-up/email') return;
         if (process.env.SMTP_ENABLED !== 'true') throw new APIError('SERVICE_UNAVAILABLE', { message: 'Email delivery is unavailable.' });
-        const result = User.RegisterSchema.safeParse(ctx.body);
+        const result = User.RegisterSchema.omit({ password: true }).safeParse(ctx.body);
         if (!result.success) throw new APIError('BAD_REQUEST', { message: result.error.issues[0].message });
         const { firstName, lastName, inviteId } = result.data;
         if (!inviteId && process.env.VITE_FEATURE_REGISTRATION !== 'true') {
@@ -135,11 +123,6 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
             const result = User.RegisterSchema.omit({ password: true, inviteId: true }).safeParse(user);
             if (!result.success) throw new APIError('BAD_REQUEST', { message: result.error.issues[0].message });
             return { data: { ...user, name: `${user.firstName} ${user.lastName}`, emailVerified: false } };
-          },
-        },
-        update: {
-          before (data) {
-            if (typeof data.banned === 'boolean') return { data: { ...data, deactivatedAt: data.banned ? new Date() : null } };
           },
         },
       },
