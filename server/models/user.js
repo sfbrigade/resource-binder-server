@@ -15,13 +15,7 @@ const UserAttributesSchema = z.object({
   email: z.string().email('Please enter a valid email address.'),
 });
 
-const UserPasswordSchema = z
-  .string()
-  .min(8, 'Password must be at least 8 characters long')
-  .max(128, 'Password must be at most 128 characters long');
-
 const UserRegisterSchema = UserAttributesSchema.extend({
-  password: UserPasswordSchema,
   inviteId: z.string().uuid().optional(),
 });
 
@@ -32,7 +26,7 @@ const UserResponseSchema = UserAttributesSchema.extend({
   isAdmin: z.boolean(),
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
-  deactivatedAt: z.coerce.date().nullable(),
+  banned: z.boolean(),
 });
 
 const UserUpdateSchema = UserAttributesSchema.pick({ firstName: true, lastName: true }).extend({
@@ -40,7 +34,6 @@ const UserUpdateSchema = UserAttributesSchema.pick({ firstName: true, lastName: 
 }).partial().strict();
 
 export class User extends Base {
-  static PasswordSchema = UserPasswordSchema;
   static RegisterSchema = UserRegisterSchema;
   static ResponseSchema = UserResponseSchema;
   static UpdateSchema = UserUpdateSchema;
