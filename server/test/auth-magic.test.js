@@ -96,7 +96,6 @@ test('Better Auth magic links and native sessions', async (t) => {
     assert.ok(response.headers['set-auth-token']);
     const updated = await prisma.user.findUnique({ where: { id: user.id } });
     assert.equal(updated.banned, false);
-    assert.equal(updated.deactivatedAt, null);
   });
 
   await t.test('disabled SMTP and delivery failures do not expose account eligibility or secrets', async () => {

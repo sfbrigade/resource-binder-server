@@ -53,7 +53,7 @@ test('/api/users', async (t) => {
         pictureUrl: null,
         createdAt: '2024-12-27T15:53:41.000Z',
         updatedAt,
-        deactivatedAt: null
+        banned: false
       });
     });
   });
@@ -74,7 +74,7 @@ test('/api/users', async (t) => {
         pictureUrl: null,
         createdAt: data.createdAt,
         updatedAt: data.updatedAt,
-        deactivatedAt: null,
+        banned: false,
       });
     });
   });
@@ -121,7 +121,7 @@ test('/api/users', async (t) => {
     await t.test('disallows admin attribute changes for user', async (t) => {
       const response = await app.inject().patch('/api/users/dab5dff3-360d-4dbb-98dd-1990dfb5c4c5').payload({
         isAdmin: true,
-        deactivatedAt: new Date().toISOString()
+        banned: true
       }).headers(userHeaders);
       assert.deepStrictEqual(response.statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
     });

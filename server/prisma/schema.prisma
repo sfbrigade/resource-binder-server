@@ -26,7 +26,6 @@ model User {
   banReason               String?
   banExpires              DateTime?
   picture                 String?
-  deactivatedAt           DateTime?
   sessions                Session[]
   accounts                Account[]
   createdInvites          Invite[]  @relation("CreatedByUser")

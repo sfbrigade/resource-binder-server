@@ -115,7 +115,7 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
       before: createAuthMiddleware(async (ctx) => {
         if (ctx.path !== '/sign-up/email') return;
         if (process.env.SMTP_ENABLED !== 'true') throw new APIError('SERVICE_UNAVAILABLE', { message: 'Email delivery is unavailable.' });
-        const result = User.RegisterSchema.omit({ password: true }).safeParse(ctx.body);
+        const result = User.RegisterSchema.safeParse(ctx.body);
         if (!result.success) throw new APIError('BAD_REQUEST', { message: result.error.issues[0].message });
         const { firstName, lastName, inviteId } = result.data;
         if (!inviteId && process.env.VITE_FEATURE_REGISTRATION !== 'true') {
@@ -134,7 +134,7 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
       user: {
         create: {
           before (user) {
-            const result = User.RegisterSchema.omit({ password: true, inviteId: true }).safeParse(user);
+            const result = User.RegisterSchema.omit({ inviteId: true }).safeParse(user);
             if (!result.success) throw new APIError('BAD_REQUEST', { message: result.error.issues[0].message });
             return { data: { ...user, name: `${user.firstName} ${user.lastName}`, emailVerified: false } };
           },
