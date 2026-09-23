@@ -68,7 +68,7 @@ test('Better Auth administration', async (t) => {
     const signup = await signUp(app);
     assert.equal(signup.statusCode, 200);
     assert.equal((await post(app, '/send-verification-email', { email: signup.json().user.email })).statusCode, 200);
-    assert.equal((await app.inject(`/api/auth/verify-email?token=${encodeURIComponent(mailToken(mail))}`)).statusCode, 200);
+    assert.equal((await app.inject(`/api/auth/verify-email?token=${encodeURIComponent(await mailToken(mail))}`)).statusCode, 200);
   });
 
   await t.test('missing password bodies return client errors', async () => {

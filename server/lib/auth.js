@@ -7,8 +7,6 @@ import { defaultAc, userAc } from 'better-auth/plugins/admin/access';
 import User from '#models/user.js';
 import mailer from '#lib/mailer.js';
 
-const EMAIL_VERIFICATION_EXPIRES_IN = 60 * 60;
-
 async function sendAuthEmail (email, template, locals) {
   if (process.env.SMTP_ENABLED !== 'true') {
     throw new APIError('SERVICE_UNAVAILABLE', { message: 'Email delivery is unavailable.' });
@@ -44,6 +42,13 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
     url.searchParams.set('token', token);
     return url.toString();
   };
+  async function sendEmail (user, template, url, request) {
+    const { logger } = await auth.$context;
+    const delivery = sendAuthEmail(user.email, template, { firstName: user.firstName, url });
+    if (!request) return delivery;
+    // Better Auth recommends not awaiting public mail delivery to avoid timing leaks.
+    delivery.catch(() => logger.warn('Authentication email delivery failed.'));
+  }
   const auth = betterAuth({
     baseURL,
     secret,
@@ -59,7 +64,6 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
         const result = User.RegisterSchema.omit({ password: true, inviteId: true }).safeParse(user);
         if (!result.success) return { error: 'invalid_profile', errorDescription: result.error.issues[0].message };
       },
-      changeEmail: { enabled: false },
       additionalFields: {
         firstName: { type: 'string', required: true },
         lastName: { type: 'string', required: true },
@@ -73,13 +77,10 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
       }),
       revokeSessionsOnPasswordReset: true,
       resetPasswordTokenExpiresIn: 30 * 60,
-      sendResetPassword: ({ user, token }) => sendAuthEmail(user.email, 'password-reset', { firstName: user.firstName, url: appLink('reset-password', token) }),
+      sendResetPassword: ({ user, token }, request) => sendEmail(user, 'password-reset', appLink('reset-password', token), request),
     },
     emailVerification: {
-      expiresIn: EMAIL_VERIFICATION_EXPIRES_IN,
-      sendOnSignUp: true,
-      autoSignInAfterVerification: false,
-      sendVerificationEmail: ({ user, token }) => sendAuthEmail(user.email, 'verification', { firstName: user.firstName, url: appLink('verify-email', token) }),
+      sendVerificationEmail: ({ user, token }, request) => sendEmail(user, 'verification', appLink('verify-email', token), request),
     },
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
@@ -128,13 +129,12 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
     },
     plugins: [invitations, bearer(), magicLink({
       disableSignUp: true,
-      expiresIn: 300,
       storeToken: 'hashed',
       async sendMagicLink ({ email, token }, ctx) {
         const user = await prisma.user.findUnique({ where: { email } });
         if (!user) return;
         try {
-          await sendAuthEmail(user.email, 'magic-link', { firstName: user.firstName, url: appLink('magic-link', token) });
+          await sendEmail(user, 'magic-link', appLink('magic-link', token), ctx.request);
         } catch {
           ctx.context.logger.warn('Magic-link email delivery failed.');
         }
@@ -148,7 +148,6 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
         }),
       },
     })],
-    session: { expiresIn: 7 * 24 * 60 * 60, updateAge: 24 * 60 * 60 },
     rateLimit: { enabled: true, storage: 'database' },
   });
   return auth;
