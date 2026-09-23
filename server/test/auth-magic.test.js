@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import mailer from '#lib/mailer.js';
-import { buildAuth, mailToken, password, post, signUp, verifiedAdmin, verifiedUser } from './auth-helper.js';
+import { buildAuth, mailToken, password, post, signUp, verifiedAdmin, verifiedUser, waitForMail } from './auth-helper.js';
 
 test('Better Auth magic links and native sessions', async (t) => {
   const fixture = await buildAuth(t);
@@ -50,6 +50,7 @@ test('Better Auth magic links and native sessions', async (t) => {
     // Simulate standing access created before the mailbox owner proved ownership.
     const { internalAdapter } = await fixture.auth.$context;
     const oldSession = await internalAdapter.createSession(user.id);
+    await waitForMail();
     mail.reset();
     const token = await requestLink(user.email);
     assert.equal(mail.getSentMail().length, 1);
@@ -63,7 +64,7 @@ test('Better Auth magic links and native sessions', async (t) => {
     assert.equal((await app.inject({ url: '/api/auth/get-session', headers })).json().user.id, user.id);
     assert.equal((await post(app, '/sign-in/email', { email: user.email, password })).statusCode, 401);
     assert.equal((await post(app, '/request-password-reset', { email: user.email })).statusCode, 200);
-    assert.equal((await post(app, '/reset-password', { token: mailToken(mail), newPassword: `${password}New` })).statusCode, 200);
+    assert.equal((await post(app, '/reset-password', { token: await mailToken(mail), newPassword: `${password}New` })).statusCode, 200);
     assert.equal((await post(app, '/sign-in/email', { email: user.email, password: `${password}New` })).statusCode, 200);
   });
 
@@ -116,8 +117,8 @@ test('Better Auth magic links and native sessions', async (t) => {
         }
       }
       assert.deepEqual(warnings.mock.calls.map(call => call.arguments), [
-        ['Magic-link email delivery failed.'],
-        ['Magic-link email delivery failed.'],
+        ['Authentication email delivery failed.'],
+        ['Authentication email delivery failed.'],
       ]);
     } finally {
       warnings.mock.restore();

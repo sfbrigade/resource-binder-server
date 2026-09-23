@@ -30,7 +30,7 @@ test('Better Auth passwords and invitations', async (t) => {
     assert.equal(response.json().token, null);
     assert.equal(response.json().user.name, 'Test Person');
     assert.equal((await post(app, '/sign-in/email', { email: 'person@example.com', password })).statusCode, 403);
-    assert.equal((await app.inject(`/api/auth/verify-email?token=${mailToken(mail)}`)).statusCode, 200);
+    assert.equal((await app.inject(`/api/auth/verify-email?token=${await mailToken(mail)}`)).statusCode, 200);
     const login = await post(app, '/sign-in/email', { email: 'person@example.com', password });
     assert.equal(login.statusCode, 200, login.body);
     const cookie = login.cookies.map(({ name, value }) => `${name}=${value}`).join('; ');
@@ -45,7 +45,7 @@ test('Better Auth passwords and invitations', async (t) => {
     const { headers } = await verifiedUser(fixture);
     const request = await post(app, '/request-password-reset', { email: 'person@example.com' });
     assert.equal(request.statusCode, 200, request.body);
-    const token = mailToken(mail);
+    const token = await mailToken(mail);
     assert.equal((await post(app, '/reset-password', { token, newPassword: 'short' })).statusCode, 400);
     assert.equal((await post(app, '/reset-password', { token, newPassword: 'a'.repeat(129) })).statusCode, 400);
     assert.equal((await post(app, '/reset-password', { token, newPassword: `${password}New` })).statusCode, 200);
@@ -63,7 +63,7 @@ test('Better Auth passwords and invitations', async (t) => {
   await t.test('native verification tokens expire, reject tampering, and honor callback URLs', async () => {
     const signup = await signUp(app);
     assert.equal(signup.statusCode, 200, signup.body);
-    const token = mailToken(mail);
+    const token = await mailToken(mail);
     const expired = await signJWT({ email: signup.json().user.email }, authSecret, -10);
     assert.equal((await app.inject(`/api/auth/verify-email?token=${encodeURIComponent(expired)}`)).statusCode, 401);
     const tampered = `${token.slice(0, -6)}aaaaaa`;
@@ -100,10 +100,10 @@ test('Better Auth passwords and invitations', async (t) => {
       const oldTokens = [];
       for (let i = 0; i < 2; i++) {
         assert.equal((await post(app, '/request-password-reset', { email: member.user.email })).statusCode, 200);
-        oldTokens.push(mailToken(mail));
+        oldTokens.push(await mailToken(mail));
       }
       assert.equal((await post(app, '/request-password-reset', { email: other.user.email })).statusCode, 200);
-      const otherToken = mailToken(mail);
+      const otherToken = await mailToken(mail);
       const unrelated = await prisma.verification.create({
         data: { identifier: 'unrelated-verification', value: member.user.id, expiresAt: new Date(Date.now() + 60000) },
       });
@@ -126,7 +126,7 @@ test('Better Auth passwords and invitations', async (t) => {
   await t.test('unauthorized password-change attempts do not invalidate reset links', async () => {
     const member = await verifiedUser(fixture);
     assert.equal((await post(app, '/request-password-reset', { email: member.user.email })).statusCode, 200);
-    const resetToken = mailToken(mail);
+    const resetToken = await mailToken(mail);
     assert.equal((await post(app, '/change-password', { currentPassword: password, newPassword: `${password}New` })).statusCode, 401);
     assert.equal((await post(app, '/change-password', {
       currentPassword: 'WrongPassword123!',
@@ -151,7 +151,7 @@ test('Better Auth passwords and invitations', async (t) => {
       const oldTokens = [];
       for (let i = 0; i < 2; i++) {
         assert.equal((await post(app, '/request-password-reset', { email: member.user.email })).statusCode, 200);
-        oldTokens.push(mailToken(mail));
+        oldTokens.push(await mailToken(mail));
       }
       const credential = await prisma.account.findFirst({ where: { userId: member.user.id, providerId: 'credential' } });
       const { adapter } = await auth.$context;
