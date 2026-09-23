@@ -67,7 +67,7 @@ test('application Better Auth cutover', async (t) => {
   await t.test('raw reset callback paths never log a usable token', async (t) => {
     assert.equal((await app.inject().post('/api/auth/request-password-reset')
       .payload({ email: 'regular.user@test.com' })).statusCode, 200);
-    const token = mailToken(nodemailerMock.mock);
+    const token = await mailToken(nodemailerMock.mock);
     const logs = [];
     const loggedApp = Fastify({ logger: { ...options.logger, stream: { write: line => logs.push(line) } } });
     t.after(() => loggedApp.close());
