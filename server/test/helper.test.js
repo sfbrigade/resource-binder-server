@@ -20,6 +20,7 @@ for (const failure of ['fixtures', 'app construction', 'app close']) {
     // Run the helper's teardown explicitly so expected errors do not fail this test.
     const teardowns = [];
     const context = {
+      mock: t.mock,
       beforeEach () {},
       afterEach () {},
       after (fn) { teardowns.push(fn); },

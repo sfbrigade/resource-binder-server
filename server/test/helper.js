@@ -209,7 +209,8 @@ async function verifiedUser (app, email = 'person@example.com') {
     .headers({ origin: process.env.BASE_URL })
     .payload({ firstName: 'Test', lastName: 'Person', email, password });
   if (signup.statusCode !== 200) throw new Error(`Signup failed: ${signup.body}`);
-  const verification = await app.inject().get(`/api/auth/verify-email?token=${await mailToken(nodemailerMock.mock)}`);
+  const token = await mailToken(nodemailerMock.mock);
+  const verification = await app.inject(`/api/auth/verify-email?token=${token}`);
   if (verification.statusCode !== 200) throw new Error(`Verification failed: ${verification.statusCode}`);
   return { user: signup.json().user, headers: await authenticate(app, email, password) };
 }
