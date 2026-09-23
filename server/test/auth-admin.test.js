@@ -101,16 +101,16 @@ test('Better Auth administration', async (t) => {
     assert.equal((await post(app, '/admin/remove-user', { userId: member.user.id }, admin.headers)).statusCode, 403);
   });
 
-  await t.test('deactivation revokes sessions and prevents new sign-ins until reactivated', async () => {
+  await t.test('banning revokes sessions and prevents new sign-ins until unbanned', async () => {
     const admin = await verifiedAdmin(fixture);
     const member = await verifiedUser(fixture);
     assert.equal((await post(app, '/admin/ban-user', { userId: member.user.id }, admin.headers)).statusCode, 200);
     const user = await prisma.user.findUnique({ where: { id: member.user.id } });
-    assert.ok(user.deactivatedAt);
+    assert.equal(user.banned, true);
     assert.equal((await app.inject({ url: '/api/auth/get-session', headers: member.headers })).json(), null);
     assert.equal((await post(app, '/sign-in/email', { email: user.email, password })).statusCode, 403);
     assert.equal((await post(app, '/admin/unban-user', { userId: member.user.id }, admin.headers)).statusCode, 200);
-    assert.equal((await prisma.user.findUnique({ where: { id: member.user.id } })).deactivatedAt, null);
+    assert.equal((await prisma.user.findUnique({ where: { id: member.user.id } })).banned, false);
     assert.equal((await post(app, '/sign-in/email', { email: user.email, password })).statusCode, 200);
   });
 });

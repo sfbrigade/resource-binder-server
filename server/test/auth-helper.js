@@ -42,7 +42,7 @@ export async function buildAuth (t) {
   return { app, auth, prisma, mail: nodemailerMock.mock };
 }
 
-export const password = 'SecurePassword123!';
+export const password = 'a sufficiently long passphrase';
 
 export function post (app, path, payload, headers = {}) {
   return app.inject({ method: 'POST', url: `/api/auth${path}`, payload, headers: { origin: 'http://localhost:3333', ...headers } });
