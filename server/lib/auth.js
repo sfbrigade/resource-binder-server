@@ -1,10 +1,14 @@
 import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
-import { getCurrentAdapter, queueAfterTransactionHook } from '@better-auth/core/context';
+import { getCurrentAdapter } from '@better-auth/core/context';
 import { APIError, createAuthMiddleware } from 'better-auth/api';
-import { hashPassword, verifyJWT } from 'better-auth/crypto';
+import { admin } from 'better-auth/plugins';
+import { defaultAc, userAc } from 'better-auth/plugins/admin/access';
 import User from '#models/user.js';
 import mailer from '#lib/mailer.js';
+
+const EMAIL_VERIFICATION_EXPIRES_IN = 60 * 60;
+const CREDENTIAL_WRITE_PATHS = ['/reset-password', '/change-password', '/admin/set-user-password'];
 
 async function sendAuthEmail (email, template, locals) {
   if (process.env.SMTP_ENABLED !== 'true') {
@@ -15,6 +19,30 @@ async function sendAuthEmail (email, template, locals) {
   } catch {
     throw new APIError('SERVICE_UNAVAILABLE', { message: 'Email delivery failed. Please try again.' });
   }
+}
+
+function credentialWriteUserId (ctx) {
+  if (ctx.path === '/change-password') return ctx.context.session?.user?.id;
+  if (ctx.path === '/admin/set-user-password') return ctx.body?.userId;
+  if (ctx.path === '/reset-password') return ctx.resetPasswordUserId;
+}
+
+async function deleteUserResetTokens (ctx, userId) {
+  const adapter = await getCurrentAdapter(ctx.context.adapter);
+  await adapter.deleteMany({
+    model: 'verification',
+    where: [
+      { field: 'value', value: userId },
+      { field: 'identifier', operator: 'starts_with', value: 'reset-password:' },
+    ],
+  });
+}
+
+async function deleteResetTokensBeforeCredentialWrite (ctx) {
+  if (!CREDENTIAL_WRITE_PATHS.includes(ctx?.path)) return;
+  const userId = credentialWriteUserId(ctx);
+  if (!userId) throw new APIError('INTERNAL_SERVER_ERROR', { message: 'Unable to resolve user for credential update.' });
+  await deleteUserResetTokens(ctx, userId);
 }
 
 // Declaring the existing Invite table lets hooks update it on Better Auth's
@@ -39,13 +67,14 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
     baseURL,
     secret,
     trustedOrigins: [new URL(baseURL).origin],
+    disabledPaths: ['/update-user', '/admin/update-user'],
     database: prismaAdapter(prisma, { provider: 'postgresql', transaction: true }),
     advanced: {
       database: { generateId: 'uuid' },
       ipAddress: { ipAddressHeaders: ['x-auth-client-ip'] },
     },
     user: {
-      changeEmail: { enabled: true },
+      changeEmail: { enabled: false },
       additionalFields: {
         firstName: { type: 'string', required: true },
         lastName: { type: 'string', required: true },
@@ -55,31 +84,24 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
       enabled: true,
       requireEmailVerification: true,
       autoSignIn: false,
+      customSyntheticUser: ({ coreFields, additionalFields, id }) => ({
+        ...coreFields, role: 'user', banned: false, banReason: null, banExpires: null, ...additionalFields, id,
+      }),
       revokeSessionsOnPasswordReset: true,
       resetPasswordTokenExpiresIn: 30 * 60,
-      password: {
-        async hash (password) {
-          const result = User.PasswordSchema.safeParse(password);
-          if (!result.success) throw new APIError('BAD_REQUEST', { message: result.error.issues[0].message });
-          return hashPassword(password);
-        },
-      },
       sendResetPassword: ({ user, url }) => sendAuthEmail(user.email, 'password-reset', { firstName: user.firstName, url }),
     },
     emailVerification: {
+      expiresIn: EMAIL_VERIFICATION_EXPIRES_IN,
       sendOnSignUp: true,
       autoSignInAfterVerification: false,
-      sendVerificationEmail: ({ user, url }) => queueAfterTransactionHook(() => sendAuthEmail(user.email, 'verification', { firstName: user.firstName, url })),
+      sendVerificationEmail: ({ user, url }) => sendAuthEmail(user.email, 'verification', { firstName: user.firstName, url }),
     },
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
-        if (['/reset-password', '/change-password'].includes(ctx.path)) {
-          const result = User.PasswordSchema.safeParse(ctx.body?.newPassword);
-          if (!result.success) throw new APIError('BAD_REQUEST', { message: result.error.issues[0].message });
-        }
         if (ctx.path !== '/sign-up/email') return;
         if (process.env.SMTP_ENABLED !== 'true') throw new APIError('SERVICE_UNAVAILABLE', { message: 'Email delivery is unavailable.' });
-        const result = User.RegisterSchema.safeParse(ctx.body);
+        const result = User.RegisterSchema.omit({ password: true }).safeParse(ctx.body);
         if (!result.success) throw new APIError('BAD_REQUEST', { message: result.error.issues[0].message });
         const { firstName, lastName, inviteId } = result.data;
         if (!inviteId && process.env.VITE_FEATURE_REGISTRATION !== 'true') {
@@ -96,27 +118,28 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
     },
     databaseHooks: {
       user: {
-        update: {
-          async before (data, ctx) {
-            if (ctx?.path !== '/verify-email' || !data.email) return;
-            // Email-change links can be verified without an authenticated session.
-            const token = await verifyJWT(ctx.query.token, ctx.context.secret);
-            const existing = token?.email && await ctx.context.internalAdapter.findUserByEmail(token.email);
-            if (!existing) throw new APIError('UNAUTHORIZED', { message: 'Email-change link is invalid or expired.' });
-            const adapter = await getCurrentAdapter(ctx.context.adapter);
-            await adapter.deleteMany({
-              model: 'verification',
-              where: [
-                { field: 'value', value: existing.user.id },
-                { field: 'identifier', operator: 'starts_with', value: 'reset-password:' },
-              ],
-            });
+        create: {
+          before (user) {
+            const result = User.RegisterSchema.omit({ password: true, inviteId: true }).safeParse(user);
+            if (!result.success) throw new APIError('BAD_REQUEST', { message: result.error.issues[0].message });
+            return { data: { ...user, name: `${user.firstName} ${user.lastName}`, emailVerified: false } };
+          },
+        },
+      },
+      verification: {
+        delete: {
+          before (verification, ctx) {
+            if (ctx?.path === '/reset-password' && typeof verification.identifier === 'string' &&
+              verification.identifier.startsWith('reset-password:')) {
+              ctx.resetPasswordUserId = verification.value;
+            }
           },
         },
       },
       account: {
         create: {
           async before (account, ctx) {
+            await deleteResetTokensBeforeCredentialWrite(ctx);
             if (ctx?.path !== '/sign-up/email' || !ctx.body.inviteId) return;
             const adapter = await getCurrentAdapter(ctx.context.adapter);
             const invite = await adapter.update({
@@ -131,10 +154,29 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
             });
             if (!invite) throw new APIError('BAD_REQUEST', { message: 'Invitation is invalid or no longer available.' });
           },
+          async after (account, ctx) {
+            if (ctx?.path === '/admin/set-user-password') await ctx.context.internalAdapter.deleteUserSessions(account.userId);
+          },
+        },
+        update: {
+          async before (_account, ctx) {
+            await deleteResetTokensBeforeCredentialWrite(ctx);
+          },
+          async after (_account, ctx) {
+            if (ctx?.path === '/admin/set-user-password') await ctx.context.internalAdapter.deleteUserSessions(ctx.body.userId);
+          },
         },
       },
     },
-    plugins: [invitations],
+    plugins: [invitations, admin({
+      roles: {
+        user: userAc,
+        admin: defaultAc.newRole({
+          user: ['get', 'list', 'set-password', 'set-role', 'ban'],
+          session: ['list', 'revoke'],
+        }),
+      },
+    })],
     session: { expiresIn: 7 * 24 * 60 * 60, updateAge: 24 * 60 * 60 },
     rateLimit: { enabled: true, storage: 'database' },
   });
