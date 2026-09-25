@@ -1,10 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import mailer from '#lib/mailer.js';
-import { buildAuth, mailToken, password, post, waitForMail } from './auth-helper.js';
+import { build, mailToken, nodemailerMock, password, waitForMail } from '#test/helper.js';
 
 test('Better Auth email delivery policy', async (t) => {
-  const { app, auth, prisma, mail } = await buildAuth(t);
+  const app = await build(t);
+  const { auth, prisma } = app;
+  const mail = nodemailerMock.mock;
+  const post = (path, payload) => app.inject().post(`/api/auth${path}`)
+    .headers({ origin: process.env.BASE_URL }).payload(payload);
   const { logger } = await auth.$context;
   const email = 'delivery@example.com';
   const verifiedEmail = 'verified@example.com';
@@ -33,17 +37,17 @@ test('Better Auth email delivery policy', async (t) => {
         return send(options);
       });
       let eligible;
-      const request = post(app, path, { email }).then(response => { eligible = response; });
+      const request = post(path, { email }).then(response => { eligible = response; });
       try {
         await t.waitFor(() => assert.ok(started), { timeout: 5000 });
-        const unknown = await post(app, path, { email: 'unknown@example.com' });
+        const unknown = await post(path, { email: 'unknown@example.com' });
         await t.waitFor(() => assert.ok(eligible), { timeout: 5000 });
         assert.equal(eligible.statusCode, 200, eligible.body);
         assert.equal(unknown.statusCode, eligible.statusCode);
         assert.deepEqual(unknown.json(), eligible.json());
         assert.equal(mail.getSentMail().length, 0);
         if (action === 'verify-email') {
-          const verified = await post(app, path, { email: verifiedEmail });
+          const verified = await post(path, { email: verifiedEmail });
           assert.equal(verified.statusCode, eligible.statusCode);
           assert.deepEqual(verified.json(), eligible.json());
         }
@@ -57,11 +61,11 @@ test('Better Auth email delivery policy', async (t) => {
       }
       const token = await mailToken(mail);
       const redeemed = action === 'reset-password'
-        ? await post(app, '/reset-password', { token, newPassword: `${password}Changed` })
+        ? await post('/reset-password', { token, newPassword: `${password}Changed` })
         : await app.inject(`/api/auth/${action === 'magic-link' ? 'magic-link/verify' : 'verify-email'}?token=${encodeURIComponent(token)}`);
       assert.equal(redeemed.statusCode, 200, redeemed.body);
       if (action === 'reset-password') {
-        assert.equal((await post(app, '/sign-in/email', { email, password: `${password}Changed` })).statusCode, 200);
+        assert.equal((await post('/sign-in/email', { email, password: `${password}Changed` })).statusCode, 200);
       }
     });
 
@@ -75,11 +79,11 @@ test('Better Auth email delivery policy', async (t) => {
         });
         process.env.SMTP_ENABLED = String(smtpEnabled);
         try {
-          const eligible = await post(app, path, { email });
+          const eligible = await post(path, { email });
           assert.equal(eligible.statusCode, 200, eligible.body);
           const addresses = ['unknown@example.com', ...(action === 'verify-email' ? [verifiedEmail] : [])];
           for (const address of addresses) {
-            const response = await post(app, path, { email: address });
+            const response = await post(path, { email: address });
             assert.equal(response.statusCode, eligible.statusCode);
             assert.deepEqual(response.json(), eligible.json());
           }
