@@ -2,12 +2,11 @@ import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { getCurrentAdapter } from '@better-auth/core/context';
 import { APIError, createAuthMiddleware } from 'better-auth/api';
-import { admin } from 'better-auth/plugins';
+import { admin, bearer, magicLink } from 'better-auth/plugins';
 import { defaultAc, userAc } from 'better-auth/plugins/admin/access';
 import User from '#models/user.js';
 import mailer from '#lib/mailer.js';
 
-const EMAIL_VERIFICATION_EXPIRES_IN = 60 * 60;
 const CREDENTIAL_WRITE_PATHS = ['/reset-password', '/change-password', '/admin/set-user-password'];
 
 async function sendAuthEmail (email, template, locals) {
@@ -63,10 +62,23 @@ const invitations = {
 
 // Construct after configuration is loaded; tests supply their own database.
 export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = process.env.BETTER_AUTH_SECRET } = {}) {
-  return betterAuth({
+  const linkOrigin = new URL(process.env.AUTH_LINK_BASE_URL || baseURL).origin;
+  const appLink = (action, token) => {
+    const url = new URL(`/auth/${action}`, linkOrigin);
+    url.searchParams.set('token', token);
+    return url.toString();
+  };
+  async function sendEmail (user, template, url, request) {
+    const { logger } = await auth.$context;
+    const delivery = sendAuthEmail(user.email, template, { firstName: user.firstName, url });
+    if (!request) return delivery;
+    // Better Auth recommends not awaiting public mail delivery to avoid timing leaks.
+    delivery.catch(() => logger.warn('Authentication email delivery failed.'));
+  }
+  const auth = betterAuth({
     baseURL,
     secret,
-    trustedOrigins: [new URL(baseURL).origin],
+    trustedOrigins: [new URL(baseURL).origin, linkOrigin],
     disabledPaths: ['/update-user', '/admin/update-user'],
     database: prismaAdapter(prisma, { provider: 'postgresql', transaction: true }),
     advanced: {
@@ -74,7 +86,6 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
       ipAddress: { ipAddressHeaders: ['x-auth-client-ip'] },
     },
     user: {
-      changeEmail: { enabled: false },
       additionalFields: {
         firstName: { type: 'string', required: true },
         lastName: { type: 'string', required: true },
@@ -89,13 +100,10 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
       }),
       revokeSessionsOnPasswordReset: true,
       resetPasswordTokenExpiresIn: 30 * 60,
-      sendResetPassword: ({ user, url }) => sendAuthEmail(user.email, 'password-reset', { firstName: user.firstName, url }),
+      sendResetPassword: ({ user, token }, request) => sendEmail(user, 'password-reset', appLink('reset-password', token), request),
     },
     emailVerification: {
-      expiresIn: EMAIL_VERIFICATION_EXPIRES_IN,
-      sendOnSignUp: true,
-      autoSignInAfterVerification: false,
-      sendVerificationEmail: ({ user, url }) => sendAuthEmail(user.email, 'verification', { firstName: user.firstName, url }),
+      sendVerificationEmail: ({ user, token }, request) => sendEmail(user, 'verification', appLink('verify-email', token), request),
     },
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
@@ -168,7 +176,19 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
         },
       },
     },
-    plugins: [invitations, admin({
+    plugins: [invitations, bearer(), magicLink({
+      disableSignUp: true,
+      storeToken: 'hashed',
+      async sendMagicLink ({ email, token }, ctx) {
+        const user = await prisma.user.findUnique({ where: { email } });
+        if (!user) return;
+        try {
+          await sendEmail(user, 'magic-link', appLink('magic-link', token), ctx.request);
+        } catch {
+          ctx.context.logger.warn('Magic-link email delivery failed.');
+        }
+      },
+    }), admin({
       roles: {
         user: userAc,
         admin: defaultAc.newRole({
@@ -177,7 +197,7 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
         }),
       },
     })],
-    session: { expiresIn: 7 * 24 * 60 * 60, updateAge: 24 * 60 * 60 },
     rateLimit: { enabled: true, storage: 'database' },
   });
+  return auth;
 }

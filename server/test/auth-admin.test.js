@@ -38,10 +38,10 @@ test('Better Auth administration', async (t) => {
     const oldTokens = [];
     for (let i = 0; i < 2; i++) {
       assert.equal((await post(app, '/request-password-reset', { email: member.user.email })).statusCode, 200);
-      oldTokens.push(mailToken(mail));
+      oldTokens.push(await mailToken(mail));
     }
     assert.equal((await post(app, '/request-password-reset', { email: other.user.email })).statusCode, 200);
-    const otherToken = mailToken(mail);
+    const otherToken = await mailToken(mail);
     const unrelated = await prisma.verification.create({
       data: { identifier: 'unrelated-verification', value: member.user.id, expiresAt: new Date(Date.now() + 60000) },
     });
@@ -63,7 +63,7 @@ test('Better Auth administration', async (t) => {
     const admin = await verifiedAdmin(fixture);
     const member = await verifiedUser(fixture);
     assert.equal((await post(app, '/request-password-reset', { email: member.user.email })).statusCode, 200);
-    const resetToken = mailToken(mail);
+    const resetToken = await mailToken(mail);
     const credential = await prisma.account.findFirst({ where: { userId: member.user.id, providerId: 'credential' } });
     const { adapter } = await auth.$context;
     const deletion = mockResetTokenDeletionFailure(t, adapter);
@@ -81,7 +81,7 @@ test('Better Auth administration', async (t) => {
     const signup = await signUp(app);
     assert.equal(signup.statusCode, 200);
     assert.equal((await post(app, '/send-verification-email', { email: signup.json().user.email })).statusCode, 200);
-    assert.equal((await app.inject(`/api/auth/verify-email?token=${encodeURIComponent(mailToken(mail))}`)).statusCode, 200);
+    assert.equal((await app.inject(`/api/auth/verify-email?token=${encodeURIComponent(await mailToken(mail))}`)).statusCode, 200);
   });
 
   await t.test('missing password bodies return client errors', async () => {
