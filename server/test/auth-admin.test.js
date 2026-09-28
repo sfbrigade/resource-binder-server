@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildAuth, mailToken, mockResetTokenDeletionFailure, password, post, signUp, verifiedAdmin, verifiedUser } from './auth-helper.js';
+import { buildAuth, mailToken, password, post, signUp, verifiedAdmin, verifiedUser } from './auth-helper.js';
 
 test('Better Auth administration', async (t) => {
   const fixture = await buildAuth(t);
-  const { app, auth, prisma, mail } = fixture;
+  const { app, prisma, mail } = fixture;
 
   for (const hasPassword of [true, false]) {
     await t.test(`admin password changes revoke only the target user's sessions (existing password: ${hasPassword})`, async () => {
@@ -31,49 +31,15 @@ test('Better Auth administration', async (t) => {
     assert.equal((await prisma.user.findUnique({ where: { id: member.user.id } })).emailVerified, true);
   });
 
-  await t.test("admin password changes invalidate only that user's old reset links", async () => {
+  await t.test('rejected admin password changes preserve credentials and sessions', async () => {
     const admin = await verifiedAdmin(fixture);
     const member = await verifiedUser(fixture);
-    const other = await verifiedUser(fixture, 'other@example.com');
-    const oldTokens = [];
-    for (let i = 0; i < 2; i++) {
-      assert.equal((await post(app, '/request-password-reset', { email: member.user.email })).statusCode, 200);
-      oldTokens.push(mailToken(mail));
-    }
-    assert.equal((await post(app, '/request-password-reset', { email: other.user.email })).statusCode, 200);
-    const otherToken = mailToken(mail);
-    const unrelated = await prisma.verification.create({
-      data: { identifier: 'unrelated-verification', value: member.user.id, expiresAt: new Date(Date.now() + 60000) },
-    });
     const credential = await prisma.account.findFirst({ where: { userId: member.user.id, providerId: 'credential' } });
-    assert.equal((await post(app, '/admin/set-user-password', { userId: member.user.id, newPassword: `${password}Changed` }, admin.headers)).statusCode, 200);
-    for (const token of oldTokens) {
-      assert.equal(await prisma.verification.findUnique({ where: { identifier: `reset-password:${token}` } }), null);
-      assert.equal((await post(app, '/reset-password', { token, newPassword: `${password}OldMailbox` })).statusCode, 400);
-    }
-    assert.notEqual((await prisma.account.findUnique({ where: { id: credential.id } })).password, credential.password);
-    assert.ok(await prisma.verification.findUnique({ where: { id: unrelated.id } }));
-    assert.ok(await prisma.verification.findUnique({ where: { identifier: `reset-password:${otherToken}` } }));
-    await prisma.rateLimit.deleteMany();
-    assert.equal((await post(app, '/reset-password', { token: otherToken, newPassword: `${password}Other` })).statusCode, 200);
-    assert.equal((await post(app, '/sign-in/email', { email: other.user.email, password: `${password}Other` })).statusCode, 200);
-  });
-
-  await t.test('reset-token invalidation failure prevents an admin password change', async () => {
-    const admin = await verifiedAdmin(fixture);
-    const member = await verifiedUser(fixture);
-    assert.equal((await post(app, '/request-password-reset', { email: member.user.email })).statusCode, 200);
-    const resetToken = mailToken(mail);
-    const credential = await prisma.account.findFirst({ where: { userId: member.user.id, providerId: 'credential' } });
-    const { adapter } = await auth.$context;
-    const deletion = mockResetTokenDeletionFailure(t, adapter);
-    try {
-      assert.equal((await post(app, '/admin/set-user-password', { userId: member.user.id, newPassword: `${password}Changed` }, admin.headers)).statusCode, 500);
+    for (const newPassword of ['short', 'a'.repeat(129)]) {
+      const response = await post(app, '/admin/set-user-password', { userId: member.user.id, newPassword }, admin.headers);
+      assert.equal(response.statusCode, 400, response.body);
       assert.equal((await prisma.account.findUnique({ where: { id: credential.id } })).password, credential.password);
-      assert.ok(await prisma.verification.findUnique({ where: { identifier: `reset-password:${resetToken}` } }));
       assert.equal((await app.inject({ url: '/api/auth/get-session', headers: member.headers })).json()?.user.id, member.user.id);
-    } finally {
-      deletion.mock.restore();
     }
   });
 

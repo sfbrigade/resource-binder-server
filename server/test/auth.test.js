@@ -5,10 +5,10 @@ import {
   authSecret,
   buildAuth,
   mailToken,
-  mockResetTokenDeletionFailure,
   password,
   post,
   signUp,
+  verifiedAdmin,
   verifiedUser,
 } from './auth-helper.js';
 
@@ -25,10 +25,14 @@ test('Better Auth passwords and invitations', async (t) => {
   const { app, auth, prisma, mail } = fixture;
 
   await t.test('signup requires verification, then password login and logout work', async () => {
-    const response = await signUp(app);
+    assert.equal((await signUp(app, 'person@example.com', { role: 'admin' })).statusCode, 400);
+    assert.equal(await prisma.user.count({ where: { email: 'person@example.com' } }), 0);
+    const response = await signUp(app, 'person@example.com', { emailVerified: true });
     assert.equal(response.statusCode, 200, response.body);
     assert.equal(response.json().token, null);
     assert.equal(response.json().user.name, 'Test Person');
+    assert.equal(response.json().user.emailVerified, false);
+    assert.equal(response.json().user.role, 'user');
     assert.equal((await post(app, '/sign-in/email', { email: 'person@example.com', password })).statusCode, 403);
     assert.equal((await app.inject(`/api/auth/verify-email?token=${mailToken(mail)}`)).statusCode, 200);
     const login = await post(app, '/sign-in/email', { email: 'person@example.com', password });
@@ -37,6 +41,36 @@ test('Better Auth passwords and invitations', async (t) => {
     assert.ok((await app.inject({ url: '/api/auth/get-session', headers: { cookie } })).json().user.id);
     assert.equal((await post(app, '/sign-out', {}, { cookie })).statusCode, 200);
     assert.equal((await app.inject({ url: '/api/auth/get-session', headers: { cookie } })).json(), null);
+  });
+
+  await t.test('duplicate signup retains the same public shape with admin fields', async () => {
+    const created = await signUp(app);
+    const duplicate = await signUp(app);
+    assert.equal(created.statusCode, 200, created.body);
+    assert.equal(duplicate.statusCode, 200, duplicate.body);
+    assert.equal(created.json().token, null);
+    assert.equal(duplicate.json().token, null);
+    const stableFields = ({ id, createdAt, updatedAt, ...user }) => user;
+    assert.deepEqual(stableFields(duplicate.json().user), stableFields(created.json().user));
+    assert.equal(await prisma.user.count({ where: { email: 'person@example.com' } }), 1);
+    assert.equal(await prisma.session.count(), 0);
+  });
+
+  await t.test('native user admission validates profiles without rewriting trusted admin input', async () => {
+    const body = {
+      name: 'Preferred display name',
+      email: 'bootstrap@example.com',
+      password,
+      role: 'admin',
+      data: { firstName: 'First', lastName: 'Admin', emailVerified: true },
+    };
+    await assert.rejects(auth.api.createUser({ body: { ...body, data: { ...body.data, firstName: '' } } }), { statusCode: 403 });
+    assert.equal(await prisma.user.count({ where: { email: body.email } }), 0);
+    const { user } = await auth.api.createUser({ body });
+    assert.equal(user.name, body.name);
+    assert.equal(user.emailVerified, true);
+    assert.equal(user.role, 'admin');
+    assert.equal((await post(app, '/sign-in/email', { email: body.email, password })).statusCode, 200);
   });
 
   await t.test('password validation and reset revoke old sessions', async () => {
@@ -93,33 +127,28 @@ test('Better Auth passwords and invitations', async (t) => {
       name: 'password resets',
       changePassword: async (member, tokens) => post(app, '/reset-password', { token: tokens.shift(), newPassword: `${password}New` }),
     },
+    {
+      name: 'admin password changes',
+      changePassword: async (member) => {
+        const admin = await verifiedAdmin(fixture);
+        return post(app, '/admin/set-user-password', { userId: member.user.id, newPassword: `${password}New` }, admin.headers);
+      },
+    },
   ]) {
-    await t.test(`${name} invalidate only that user's old reset links`, async () => {
+    await t.test(`${name} leave unused reset links to Better Auth's native lifecycle`, async () => {
       const member = await verifiedUser(fixture);
-      const other = await verifiedUser(fixture, 'other@example.com');
-      const oldTokens = [];
+      const tokens = [];
       for (let i = 0; i < 2; i++) {
         assert.equal((await post(app, '/request-password-reset', { email: member.user.email })).statusCode, 200);
-        oldTokens.push(mailToken(mail));
+        tokens.push(mailToken(mail));
       }
-      assert.equal((await post(app, '/request-password-reset', { email: other.user.email })).statusCode, 200);
-      const otherToken = mailToken(mail);
-      const unrelated = await prisma.verification.create({
-        data: { identifier: 'unrelated-verification', value: member.user.id, expiresAt: new Date(Date.now() + 60000) },
-      });
-      const credential = await prisma.account.findFirst({ where: { userId: member.user.id, providerId: 'credential' } });
-      const response = await changePassword(member, oldTokens);
+      const response = await changePassword(member, tokens);
       assert.equal(response.statusCode, 200, response.body);
-      for (const token of oldTokens) {
-        assert.equal(await prisma.verification.findUnique({ where: { identifier: `reset-password:${token}` } }), null);
-        assert.equal((await post(app, '/reset-password', { token, newPassword: `${password}OldMailbox` })).statusCode, 400);
-      }
-      assert.notEqual((await prisma.account.findUnique({ where: { id: credential.id } })).password, credential.password);
-      assert.ok(await prisma.verification.findUnique({ where: { id: unrelated.id } }));
-      assert.ok(await prisma.verification.findUnique({ where: { identifier: `reset-password:${otherToken}` } }));
-      await prisma.rateLimit.deleteMany();
-      assert.equal((await post(app, '/reset-password', { token: otherToken, newPassword: `${password}Other` })).statusCode, 200);
-      assert.equal((await post(app, '/sign-in/email', { email: other.user.email, password: `${password}Other` })).statusCode, 200);
+      const token = tokens.at(-1);
+      const reset = () => post(app, '/reset-password', { token, newPassword: `${password}Fresh` });
+      assert.equal((await reset()).statusCode, 200);
+      assert.equal((await reset()).statusCode, 400);
+      assert.equal((await post(app, '/sign-in/email', { email: member.user.email, password: `${password}Fresh` })).statusCode, 200);
     });
   }
 
@@ -135,38 +164,6 @@ test('Better Auth passwords and invitations', async (t) => {
     assert.ok(await prisma.verification.findUnique({ where: { identifier: `reset-password:${resetToken}` } }));
     assert.equal((await post(app, '/reset-password', { token: resetToken, newPassword: `${password}Fresh` })).statusCode, 200);
   });
-
-  for (const { name, attempt } of [
-    {
-      name: 'password change',
-      attempt: (member) => post(app, '/change-password', { currentPassword: password, newPassword: `${password}New` }, member.headers),
-    },
-    {
-      name: 'password reset',
-      attempt: (_member, token) => post(app, '/reset-password', { token, newPassword: `${password}New` }),
-    },
-  ]) {
-    await t.test(`reset-token invalidation failure prevents a ${name}`, async () => {
-      const member = await verifiedUser(fixture);
-      const oldTokens = [];
-      for (let i = 0; i < 2; i++) {
-        assert.equal((await post(app, '/request-password-reset', { email: member.user.email })).statusCode, 200);
-        oldTokens.push(mailToken(mail));
-      }
-      const credential = await prisma.account.findFirst({ where: { userId: member.user.id, providerId: 'credential' } });
-      const { adapter } = await auth.$context;
-      const deletion = mockResetTokenDeletionFailure(t, adapter);
-      try {
-        assert.equal((await attempt(member, oldTokens[0])).statusCode, 500);
-        assert.equal((await prisma.account.findUnique({ where: { id: credential.id } })).password, credential.password);
-        assert.ok(await prisma.verification.findUnique({ where: { identifier: `reset-password:${oldTokens[1]}` } }));
-      } finally {
-        deletion.mock.restore();
-      }
-      await prisma.rateLimit.deleteMany();
-      assert.equal((await post(app, '/reset-password', { token: oldTokens[1], newPassword: `${password}Fresh` })).statusCode, 200);
-    });
-  }
 
   await t.test('invalid invitations return the same error for existing and unknown emails', async () => {
     const member = await verifiedUser(fixture);

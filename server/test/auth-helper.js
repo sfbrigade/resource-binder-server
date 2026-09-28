@@ -70,16 +70,6 @@ export async function verifiedUser ({ app, mail, prisma }, email = 'person@examp
   return { user: signup.json().user, headers: { cookie }, token: login.json().token };
 }
 
-export function mockResetTokenDeletionFailure (t, adapter) {
-  const deleteMany = adapter.deleteMany.bind(adapter);
-  return t.mock.method(adapter, 'deleteMany', async (options) => {
-    if (options.model === 'verification' && options.where.some(({ field, value }) => field === 'identifier' && value === 'reset-password:')) {
-      throw new Error('Simulated reset-token deletion failure');
-    }
-    return deleteMany(options);
-  });
-}
-
 export async function verifiedAdmin ({ auth, app, mail, prisma }) {
   const email = 'admin@example.com';
   const { user } = await auth.api.createUser({ body: { name: 'Test Admin', email, password, role: 'admin', data: { firstName: 'Test', lastName: 'Admin' } } });
