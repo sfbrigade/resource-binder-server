@@ -33,6 +33,11 @@ must handle those links and exchange their tokens with the API; iOS/Android doma
 associations and app handlers are separate work. Magic links only sign in existing
 accounts. Email-change endpoints are disabled.
 
+Reset links are single-use and expire after 30 minutes. Password changes leave
+other unused reset links valid until expiry, following Better Auth's token lifecycle.
+Password resets revoke sessions through the built-in option; admin password changes
+also force logout through Better Auth's native session-revocation API.
+
 The cutover removes legacy password/reset fields and sessions are not imported.
 Existing development users must verify their email and reset their password. This
 is not a production password migration or a reversible rollback. The React
@@ -86,12 +91,13 @@ Server startup applies the checked-in migrations; it never resets the database.
    Once you're logged in, you will be in a new shell for the container where you can run the following command:
 
    ```
-   node server/bin/create-admin.js Firstname Lastname email 'StrongPassword123!'
+   npx auth@1.7.6 create-admin --config ./server/auth.js --email admin@example.com --name 'Firstname Lastname' --data '{"firstName":"Firstname","lastName":"Lastname"}'
    ```
 
-   Put in your name and email address and a strong password. This creates the first admin through Better Auth;
-   verify the emailed link before signing in. Without a native app, copy the token from Mailcatcher and
-   open `/api/auth/verify-email?token=...` on the API server.
+   Substitute your name and email address. Better Auth's official CLI prompts for a password
+   and creates the initial administrator as verified, so no verification email is needed.
+   Use a long, unique password. The CLI version is pinned independently of the server's
+   Better Auth version; see the [CLI documentation](https://better-auth.com/docs/concepts/cli#create-admin).
 
 7. To stop the server, press CONTROL-C in the window with the running server.
    If it is successful, you will see something like this:
