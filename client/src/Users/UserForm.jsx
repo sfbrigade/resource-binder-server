@@ -1,36 +1,32 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useParams } from 'react-router';
-import { Alert, Button, Checkbox, Container, Fieldset, Group, Stack, TextInput, Title } from '@mantine/core';
-import { hasLength, isEmail, isNotEmpty, useForm } from '@mantine/form';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { Alert, Button, Container, Fieldset, Group, Stack, TextInput, Title } from '@mantine/core';
+import { isNotEmpty, useForm } from '@mantine/form';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Head } from '@unhead/react';
 
 import Api from '../Api';
 import { useAuthContext } from '../AuthContext';
 import PhotoInput from '../Components/PhotoInput';
+import UserCredentials from './UserCredentials';
 
 function UserForm () {
   const authContext = useAuthContext();
   const location = useLocation();
   const params = useParams();
   const userId = params.userId ?? authContext.user.id;
+  const queryClient = useQueryClient();
 
   const form = useForm({
     mode: 'uncontrolled',
     initialValues: {
       firstName: '',
       lastName: '',
-      email: '',
-      password: '',
       picture: '',
-      pictureUrl: '',
-      isAdmin: false,
     },
     validate: {
       firstName: isNotEmpty('First name is required.'),
       lastName: isNotEmpty('Last name is required.'),
-      email: isEmail('Please enter a valid email address.'),
-      password: (value) => value ? hasLength({ min: 8 }, 'Passwords must be at least 8 characters.') : null,
     },
   });
 
@@ -43,17 +39,20 @@ function UserForm () {
   useEffect(() => {
     if (response) {
       form.initialize({
-        ...response.data,
-        password: '',
+        firstName: response.data.firstName,
+        lastName: response.data.lastName,
+        picture: response.data.picture,
       });
     }
   }, [response]);
 
   const onSubmitMutation = useMutation({
-    mutationFn: (values) => Api.users.update(userId, values),
+    mutationFn: ({ firstName, lastName, picture }) => Api.users.update(userId, { firstName, lastName, picture: picture || null }),
     onMutate: () => setSuccess(false),
     onSuccess: (response) => {
+      queryClient.setQueryData(['users', userId], response);
       if (userId === authContext.user.id) {
+        queryClient.setQueryData(['users', 'me'], response.data);
         authContext.setUser(response.data);
       }
       setSuccess(true);
@@ -70,7 +69,7 @@ function UserForm () {
       </Head>
       <Container>
         <Title mb='md'>My Account</Title>
-        <form onSubmit={form.onSubmit(onSubmitMutation.mutateAsync)}>
+        <form onSubmit={form.onSubmit(onSubmitMutation.mutate)}>
           <Fieldset disabled={isLoading} variant='unstyled'>
             <Stack w={{ base: '100%', xs: 320 }}>
               {location.state?.flash && <Alert>{location.state?.flash}</Alert>}
@@ -79,7 +78,7 @@ function UserForm () {
               <PhotoInput
                 {...form.getInputProps('picture')}
                 label='Picture'
-                valueUrl={form.getValues().pictureUrl}
+                valueUrl={response?.data.pictureUrl}
               />
               <TextInput
                 {...form.getInputProps('firstName')}
@@ -91,31 +90,14 @@ function UserForm () {
                 key={form.key('lastName')}
                 label='Last name'
               />
-              <TextInput
-                {...form.getInputProps('email')}
-                key={form.key('email')}
-                label='Email'
-                type='email'
-              />
-              <TextInput
-                {...form.getInputProps('password')}
-                key={form.key('password')}
-                label='Password'
-                type='password'
-              />
-              {authContext.user.isAdmin && (
-                <Checkbox
-                  {...form.getInputProps('isAdmin', { type: 'checkbox' })}
-                  key={form.key('isAdmin')}
-                  label='Is an Administrator?'
-                />
-              )}
+              <TextInput value={response?.data.email ?? ''} label='Email' readOnly />
               <Group>
                 <Button disabled={onSubmitMutation.isPending} type='submit'>Submit</Button>
               </Group>
             </Stack>
           </Fieldset>
         </form>
+        {response && <UserCredentials key={userId} user={response.data} />}
       </Container>
     </>
   );

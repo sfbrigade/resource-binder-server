@@ -73,6 +73,7 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
       additionalFields: {
         firstName: { type: 'string', required: true },
         lastName: { type: 'string', required: true },
+        picture: { type: 'string', required: false, input: false },
       },
     },
     emailAndPassword: {

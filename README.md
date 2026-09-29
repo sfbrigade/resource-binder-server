@@ -22,16 +22,26 @@ Before starting the server, configure `server/.env` (copy `server/example.env` i
   The example placeholder deliberately fails startup. Never include this secret in a client app.
 - `BASE_URL`: the public API origin; HTTPS is required in production.
 - `AUTH_LINK_BASE_URL`: optional email-link origin, defaulting to `BASE_URL`.
-  A separate origin must also serve the `/auth/*` landing routes.
+  A separate origin must also serve the browser application and `/auth/*` routes.
+- `TRUSTED_PROXIES`: comma-separated IP addresses or CIDRs of your reverse proxies.
+  Set this when deploying behind a proxy so authentication rate limits and session
+  IPs identify each client. Leave unset for direct connections. Only include proxies
+  you control that sanitize forwarded headers; do not trust every address.
 - `SMTP_ENABLED=true` and the existing mail settings are required for signup and
   email delivery. Local development uses Mailcatcher.
 - `VITE_FEATURE_REGISTRATION`: when not `true`, signup requires a matching, unused
   invitation. Signup also requires `firstName` and `lastName`.
 
-Email links open `/auth/*` instruction pages without consuming tokens. Native apps
-must handle those links and exchange their tokens with the API; iOS/Android domain
-associations and app handlers are separate work. Magic links only sign in existing
-accounts. Email-change endpoints are disabled.
+Verification, reset, and invitation links open browser forms under `/auth/*`.
+Opening a page does not consume its token; verification requires a button click,
+and password reset requires submitting the new password. Signup requires email
+verification before sign-in. Browser authentication uses the official Better Auth
+client and Admin client plugin; profile names and uploaded pictures remain app-owned.
+Email addresses are read-only while email-change endpoints are disabled.
+
+Magic links still open an instruction page for native apps and only sign in existing
+accounts. Native apps must handle email links and exchange tokens with the API;
+iOS/Android domain associations and app handlers remain separate work.
 
 Reset links are single-use and expire after 30 minutes. Password changes leave
 other unused reset links valid until expiry, following Better Auth's token lifecycle.
@@ -40,8 +50,7 @@ also force logout through Better Auth's native session-revocation API.
 
 The cutover removes legacy password/reset fields and sessions are not imported.
 Existing development users must verify their email and reset their password. This
-is not a production password migration or a reversible rollback. The React
-authentication screens still call retired endpoints and need a separate migration.
+is not a production password migration or a reversible rollback.
 Server startup applies the checked-in migrations; it never resets the database.
 
 ## One-time Setup

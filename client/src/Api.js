@@ -1,5 +1,3 @@
-/* eslint-disable no-throw-literal */
-
 import axios from 'axios';
 
 import { StatusCodes } from 'http-status-codes';
@@ -75,28 +73,6 @@ const Api = {
       return instance.put(url, file, { headers });
     },
   },
-  auth: {
-    login (email, password) {
-      return instance.post('/api/auth/login', { email, password })
-        .catch((error) => {
-          switch (error.response?.status) {
-            case StatusCodes.NOT_FOUND:
-            case StatusCodes.UNPROCESSABLE_ENTITY:
-              throw { _form: 'Invalid email and/or password' };
-            case StatusCodes.FORBIDDEN:
-              throw { _form: 'Your account has been deactivated.' };
-            default:
-              throw { _form: error.message };
-          }
-        });
-    },
-    logout () {
-      return instance.delete('/api/auth/logout');
-    },
-    register (data) {
-      return instance.post('/api/auth/register', data).catch(handleError);
-    },
-  },
   invites: {
     index (page = 1) {
       return instance.get('/api/invites', { params: { page } });
@@ -107,32 +83,11 @@ const Api = {
     get (id) {
       return instance.get(`/api/invites/${id}`);
     },
-    accept (id, data) {
-      return instance.post(`/api/invites/${id}/accept`, data);
-    },
     resend (id) {
       return instance.patch(`/api/invites/${id}/resend`);
     },
     revoke (id) {
       return instance.delete(`/api/invites/${id}`);
-    },
-  },
-  passwords: {
-    reset (email) {
-      return instance.post('/api/passwords', { email }).catch((error) => {
-        switch (error.response?.status) {
-          case StatusCodes.NOT_FOUND:
-            throw { email: 'Email not found.' };
-          default:
-            throw { _form: error.message };
-        }
-      });
-    },
-    get (token) {
-      return instance.get(`/api/passwords/${token}`);
-    },
-    update (token, password) {
-      return instance.patch(`/api/passwords/${token}`, { password }).catch(handleError);
     },
   },
   users: {

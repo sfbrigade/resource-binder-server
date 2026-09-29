@@ -116,6 +116,11 @@ test('/api/users', async (t) => {
       assert.deepStrictEqual(data.picture, picture);
 
       assert.ok(await assetExists(path.join('users', `${data.id}`, 'picture', picture)));
+      const session = await app.inject({ url: '/api/auth/get-session', headers: userHeaders });
+      assert.strictEqual(session.json().user.picture, picture);
+      const profile = await app.inject({ url: '/api/users/me', headers: userHeaders });
+      assert.strictEqual(profile.statusCode, 200, profile.body);
+      assert.strictEqual(profile.json().pictureUrl, `/api/assets/users/${data.id}/picture/${picture}`);
     });
 
     await t.test('disallows admin attribute changes for user', async (t) => {

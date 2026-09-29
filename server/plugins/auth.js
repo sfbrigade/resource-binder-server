@@ -20,8 +20,7 @@ export default fp(async function (fastify) {
     if (token) reply.header('set-auth-token', token);
     const session = await response.json();
     if (response.ok && session?.user) {
-      const data = await fastify.prisma.user.findUnique({ where: { id: session.user.id } });
-      if (data) request.user = new User(data);
+      request.user = new User(session.user);
     }
   });
 

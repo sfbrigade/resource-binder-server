@@ -8,6 +8,7 @@ const __dirname = path.dirname(__filename);
 
 // Pass --options via CLI arguments in command to enable these options.
 export const options = {
+  trustProxy: process.env.TRUSTED_PROXIES?.split(',').map(value => value.trim()).filter(Boolean) || false,
   logger: {
     serializers: {
       req (request) {

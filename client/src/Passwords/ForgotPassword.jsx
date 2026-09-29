@@ -4,7 +4,7 @@ import { isEmail, useForm } from '@mantine/form';
 import { useMutation } from '@tanstack/react-query';
 import { Head } from '@unhead/react';
 
-import Api from '../Api';
+import { authClient } from '../auth-client';
 
 function ForgotPassword () {
   const navigate = useNavigate();
@@ -19,9 +19,9 @@ function ForgotPassword () {
   });
 
   const onSubmitMutation = useMutation({
-    mutationFn: (values) => Api.passwords.reset(values.email),
-    onSuccess: () => navigate('/login', { state: { flash: 'Please check your email in a few minutes for a reset password link.' } }),
-    onError: (errors) => form.setErrors(errors),
+    mutationFn: (values) => authClient.requestPasswordReset({ email: values.email }),
+    onSuccess: () => navigate('/login', { state: { flash: 'If an account exists for that email, a password reset link will arrive shortly.' } }),
+    onError: (error) => form.setErrors({ _form: error.message }),
     onSettled: () => window.scrollTo({ top: 0, behavior: 'smooth' }),
   });
 
@@ -32,7 +32,7 @@ function ForgotPassword () {
       </Head>
       <Container>
         <Title mb='md'>Forgot your password?</Title>
-        <form onSubmit={form.onSubmit(onSubmitMutation.mutateAsync)}>
+        <form onSubmit={form.onSubmit(onSubmitMutation.mutate)}>
           <Fieldset disabled={onSubmitMutation.isPending} variant='unstyled'>
             <Stack w={{ base: '100%', xs: 320 }}>
               {form.errors._form && <Alert color='red'>{form.errors._form}</Alert>}

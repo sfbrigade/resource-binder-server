@@ -5,6 +5,7 @@ import { Anchor, Avatar, Burger, Container, Group, Menu, Title } from '@mantine/
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import Api from './Api';
+import { authClient } from './auth-client';
 import { useAuthContext } from './AuthContext';
 
 function Header ({ opened, close, toggle }) {
@@ -28,7 +29,7 @@ function Header ({ opened, close, toggle }) {
 
   async function onLogout (event) {
     event.preventDefault();
-    await Api.auth.logout();
+    await authClient.signOut();
     queryClient.invalidateQueries({ queryKey: ['users', 'me'] });
     setUser(null);
     close();

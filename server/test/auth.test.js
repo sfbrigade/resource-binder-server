@@ -49,6 +49,8 @@ test('Better Auth foundation, passwords and invitations', async (t) => {
     const post = () => app.inject().post('/api/auth/sign-up/email')
       .headers({ origin: process.env.BASE_URL }).payload(payload);
     const created = await post();
+    assert.equal(created.json().user.picture, null);
+    await prisma.user.update({ where: { id: created.json().user.id }, data: { picture: 'private-picture.jpg' } });
     const duplicate = await post();
     assert.equal(created.statusCode, 200, created.body);
     assert.equal(duplicate.statusCode, 200, duplicate.body);

@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import Fastify from 'fastify';
+import { registerAuthRoutes } from '#lib/auth-http.js';
 import mailer from '#lib/mailer.js';
 import { build, mailToken, nodemailerMock, password, verifiedAdmin, verifiedUser, waitForMail } from '#test/helper.js';
 
@@ -150,5 +152,36 @@ test('Better Auth magic links and native sessions', async (t) => {
     }
     const blocked = await post('/sign-in/magic-link', { email: 'unknown@example.com' }, { 'x-auth-client-ip': '192.0.2.99' });
     assert.equal(blocked.statusCode, 429);
+  });
+
+  await t.test('trusted proxies preserve separate client limits; direct callers cannot spoof them', async (t) => {
+    const previous = process.env.TRUSTED_PROXIES;
+    process.env.TRUSTED_PROXIES = '192.0.2.10, 192.0.2.11/32';
+    let options;
+    try {
+      ({ options } = await import('../app.js?proxy-test'));
+    } finally {
+      if (previous === undefined) delete process.env.TRUSTED_PROXIES;
+      else process.env.TRUSTED_PROXIES = previous;
+    }
+    const proxied = Fastify({ ...options, logger: false });
+    t.after(() => proxied.close());
+    registerAuthRoutes(proxied, app.auth);
+    const request = (remoteAddress, ip) => proxied.inject({
+      method: 'POST',
+      url: '/api/auth/sign-in/magic-link',
+      remoteAddress,
+      headers: { origin: process.env.BASE_URL, 'x-forwarded-for': ip, 'x-auth-client-ip': ip },
+      payload: { email: 'unknown@example.com' },
+    });
+    for (let i = 1; i <= 6; i++) {
+      assert.equal((await request('192.0.2.10', `198.51.100.${i}`)).statusCode, 200);
+    }
+    for (let i = 0; i < 4; i++) assert.equal((await request('192.0.2.11', '198.51.100.1')).statusCode, 200);
+    assert.equal((await request('192.0.2.10', '198.51.100.1')).statusCode, 429);
+    for (let i = 1; i <= 5; i++) {
+      assert.equal((await request('203.0.113.1', `198.51.100.${i}`)).statusCode, 200);
+    }
+    assert.equal((await request('203.0.113.1', '198.51.100.99')).statusCode, 429);
   });
 });

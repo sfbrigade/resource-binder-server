@@ -19,8 +19,8 @@ function RegistrationForm ({ onSubmitMutation }) {
   });
 
   function onSubmit (values) {
-    onSubmitMutation.mutateAsync(values, {
-      onError: (errors) => form.setErrors(errors),
+    onSubmitMutation.mutate(values, {
+      onError: (error) => form.setErrors({ _form: error.message }),
       onSettled: () => window.scrollTo({ top: 0, behavior: 'smooth' }),
     });
   }

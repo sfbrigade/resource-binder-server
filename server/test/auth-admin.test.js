@@ -8,14 +8,14 @@ test('Better Auth administration', async (t) => {
   const mail = nodemailerMock.mock;
 
   await t.test('native password limits reject oversized input before hashing or verification', async (t) => {
-    const member = await verifiedUser(fixture);
-    const { password: passwords } = await fixture.auth.$context;
+    const member = await verifiedUser(app);
+    const { password: passwords } = await app.auth.$context;
     const hash = t.mock.method(passwords, 'hash');
     const verify = t.mock.method(passwords, 'verify');
-    const response = await post(app, '/sign-in/email', { email: member.user.email, password: 'a'.repeat(129) });
+    const response = await app.inject().post('/api/auth/sign-in/email').headers({ origin: process.env.BASE_URL }).payload({ email: member.user.email, password: 'a'.repeat(129) });
     assert.equal(response.statusCode, 400, response.body);
     assert.equal(response.json().code, 'PASSWORD_TOO_LONG');
-    await assert.rejects(fixture.auth.api.createUser({
+    await assert.rejects(app.auth.api.createUser({
       body: {
         name: 'Test Person',
         email: 'oversized@example.com',
