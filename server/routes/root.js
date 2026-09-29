@@ -30,9 +30,6 @@ export default async function (fastify, opts) {
       }
     },
     async function (request, reply) {
-      if (request.url.startsWith('/auth/') || request.url.startsWith('/passwords/reset')) {
-        reply.header('Cache-Control', 'no-store').header('Referrer-Policy', 'no-referrer');
-      }
       const accept = accepts(request.raw);
       if (accept.types(['html'])) {
         try {

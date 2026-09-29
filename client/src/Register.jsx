@@ -3,15 +3,20 @@ import { Box, Container, Stack, Title } from '@mantine/core';
 import { useMutation } from '@tanstack/react-query';
 import { Head } from '@unhead/react';
 
-import { authClient } from './auth-client';
+import Api from './Api';
+import { useAuthContext } from './AuthContext';
 import RegistrationForm from './RegistrationForm';
 
 function Register () {
+  const authContext = useAuthContext();
   const navigate = useNavigate();
 
   const onSubmitMutation = useMutation({
-    mutationFn: (values) => authClient.signUp.email({ ...values, name: `${values.firstName} ${values.lastName}` }),
-    onSuccess: () => navigate('/login', { state: { flash: 'Check your email to verify your account before signing in.' } }),
+    mutationFn: (values) => Api.auth.register(values),
+    onSuccess: (response) => {
+      authContext.setUser(response.data);
+      navigate('/');
+    },
     onError: () => window.scrollTo(0, 0),
   });
 

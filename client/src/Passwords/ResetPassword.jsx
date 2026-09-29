@@ -1,48 +1,80 @@
-import { useNavigate, useParams, useSearchParams, Link } from 'react-router';
+import { useNavigate, useParams, Link } from 'react-router';
 import { Alert, Box, Button, Container, Fieldset, Group, Stack, TextInput, Title } from '@mantine/core';
 import { hasLength, useForm } from '@mantine/form';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Head } from '@unhead/react';
+import { StatusCodes } from 'http-status-codes';
 
-import { authClient } from '../auth-client';
+import Api from '../Api';
 
 function ResetPassword () {
   const navigate = useNavigate();
-  const params = useParams();
-  const [searchParams] = useSearchParams();
-  const token = params.token ?? searchParams.get('token');
+  const { token } = useParams();
+
   const form = useForm({
-    initialValues: { password: '' },
-    validate: { password: hasLength({ min: 8, max: 128 }, 'Use between 8 and 128 characters.') },
+    initialValues: {
+      password: '',
+    },
+    validate: {
+      password: hasLength({ min: 8 }, 'Passwords must be at least 8 characters.'),
+    },
   });
-  const mutation = useMutation({
-    mutationFn: ({ password }) => authClient.resetPassword({ token, newPassword: password }),
-    onSuccess: () => navigate('/login', { replace: true, state: { flash: 'Your new password has been saved. Please sign in.' } }),
-    onError: (error) => form.setErrors({ _form: error.message }),
+
+  const onSubmitMutation = useMutation({
+    mutationFn: (values) => Api.passwords.update(token, values.password),
+    onSuccess: () => navigate('/login', { state: { flash: 'Your new password has been saved.' } }),
+    onError: (errors) => form.setErrors(errors),
+    onSettled: () => window.scrollTo({ top: 0, behavior: 'smooth' }),
+  });
+
+  const { error, isLoading } = useQuery({
+    queryKey: ['passwords', token],
+    queryFn: () => Api.passwords.get(token),
+    enabled: !!token,
+    retry: false,
   });
 
   return (
     <>
-      <Head><title>Reset your password</title></Head>
+      <Head>
+        <title>Reset your password</title>
+      </Head>
       <Container>
         <Title mb='md'>Reset your password</Title>
-        <Stack w={{ base: '100%', xs: 320 }}>
-          {(!token || searchParams.has('error'))
-            ? <Alert color='red'>This password reset link is invalid or expired.</Alert>
-            : (
-              <form onSubmit={form.onSubmit(mutation.mutate)}>
-                <Fieldset disabled={mutation.isPending} variant='unstyled'>
-                  <Stack>
-                    {form.errors._form && <Alert color='red'>{form.errors._form}</Alert>}
-                    <Box>Enter a new password for your account.</Box>
-                    <TextInput {...form.getInputProps('password')} label='New password' type='password' autoComplete='new-password' />
-                    <Group><Button type='submit'>Reset password</Button></Group>
-                  </Stack>
-                </Fieldset>
-              </form>
+        <form onSubmit={form.onSubmit(onSubmitMutation.mutateAsync)}>
+          <Fieldset disabled={onSubmitMutation.isPending} variant='unstyled'>
+            <Stack w={{ base: '100%', xs: 320 }}>
+              {error?.response?.status === StatusCodes.NOT_FOUND && (
+                <Alert color='red'>
+                  Sorry, this password reset link is invalid.<br />
+                  <Link to='/passwords/forgot'>Request another?</Link>
+                </Alert>
               )}
-          <Link to='/passwords/forgot'>Request a new reset link</Link>
-        </Stack>
+              {error?.response?.status === StatusCodes.GONE && (
+                <Alert color='red'>
+                  Sorry, this password reset link has expired.<br />
+                  <Link to='/passwords/forgot'>Request another?</Link>
+                </Alert>
+              )}
+              {!isLoading && !error && (
+                <>
+                  <Box>Enter a new password for your account.</Box>
+                  <TextInput
+                    {...form.getInputProps('password')}
+                    key='password'
+                    label='New password'
+                    type='password'
+                  />
+                  <Group>
+                    <Button type='submit'>
+                      Submit
+                    </Button>
+                  </Group>
+                </>
+              )}
+            </Stack>
+          </Fieldset>
+        </form>
       </Container>
     </>
   );

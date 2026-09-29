@@ -24,10 +24,15 @@ test('Better Auth magic links and native sessions', async (t) => {
     const stored = await prisma.verification.findMany();
     assert.ok(stored.length);
     assert.ok(stored.every(row => row.identifier !== token));
-    const landing = await app.inject(`/auth/magic-link?token=${token}`);
-    assert.equal(landing.statusCode, 200);
-    assert.ok(!landing.body.includes(token));
-    assert.equal(landing.headers['set-cookie'], undefined);
+    for (const action of ['magic-link', 'verify-email', 'reset-password', 'invite']) {
+      const landing = await app.inject(`/auth/${action}?token=${token}`);
+      assert.equal(landing.statusCode, 200);
+      assert.ok(landing.body.includes('Open this link on your phone'));
+      assert.ok(!landing.body.includes(token));
+      assert.equal(landing.headers['set-cookie'], undefined);
+      assert.equal(landing.headers['cache-control'], 'no-store');
+      assert.equal(landing.headers['referrer-policy'], 'no-referrer');
+    }
     const response = await app.inject(`/api/auth/magic-link/verify?token=${token}`);
     assert.equal(response.statusCode, 200);
     const bearer = response.headers['set-auth-token'];

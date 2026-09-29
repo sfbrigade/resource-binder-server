@@ -19,9 +19,6 @@ import Login from './Login';
 import InvitesRoutes from './Invites/InvitesRoutes';
 import PasswordsRoutes from './Passwords/PasswordsRoutes';
 import Register from './Register';
-import VerifyEmail from './VerifyEmail';
-import ResetPassword from './Passwords/ResetPassword';
-import Invite from './Invites/Invite';
 import UsersRoutes from './Users/UsersRoutes';
 
 const AdminRoutes = lazy(() => import('./Admin/AdminRoutes'));
@@ -57,9 +54,6 @@ function App () {
                       <AppRedirects>
                         <Routes>
                           <Route path='/' element={<Home />} />
-                          <Route path='/auth/verify-email' element={<VerifyEmail />} />
-                          <Route path='/auth/reset-password' element={<ResetPassword />} />
-                          <Route path='/auth/invite' element={<Invite />} />
                           <Route path='/login' element={<Login />} />
                           <Route path='/passwords/*' element={<PasswordsRoutes />} />
                           <Route path='/invites/*' element={<InvitesRoutes />} />

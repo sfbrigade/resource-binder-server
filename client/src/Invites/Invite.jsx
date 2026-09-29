@@ -1,31 +1,32 @@
-import { useNavigate, useParams, useSearchParams } from 'react-router';
+import { useNavigate, useParams } from 'react-router';
 import { Box, Container, Stack, Title } from '@mantine/core';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Head } from '@unhead/react';
 
 import Api from '../Api';
-import { authClient } from '../auth-client';
+import { useAuthContext } from '../AuthContext';
 import RegistrationForm from '../RegistrationForm';
 
 function Invite () {
+  const { setUser: setAuthUser } = useAuthContext();
   const navigate = useNavigate();
-  const params = useParams();
-  const [searchParams] = useSearchParams();
-  const inviteId = params.inviteId ?? searchParams.get('inviteId');
+  const { inviteId } = useParams();
 
-  const { data: invite, error } = useQuery({
+  const { data: invite } = useQuery({
     queryKey: ['invite', inviteId],
-    enabled: !!inviteId,
-    retry: false,
     queryFn: async () => {
       const response = await Api.invites.get(inviteId);
+      setAuthUser(null);
       return response.data;
     },
   });
 
   const onSubmitMutation = useMutation({
-    mutationFn: (values) => authClient.signUp.email({ ...values, name: `${values.firstName} ${values.lastName}`, inviteId }),
-    onSuccess: () => navigate('/login', { state: { flash: 'Check your email to verify your account before signing in.' } }),
+    mutationFn: (values) => Api.auth.register({ ...values, inviteId }),
+    onSuccess: (response) => {
+      setAuthUser(response.data);
+      navigate('/account', { state: { flash: 'Your account has been created!' } });
+    },
     onError: () => window.scrollTo(0, 0),
   });
 
@@ -37,7 +38,6 @@ function Invite () {
       <Container>
         <Title mb='md'>You&apos;re Invited</Title>
         <Stack>
-          {(!inviteId || error) && <Box>This invitation is invalid or no longer available.</Box>}
           {invite?.acceptedAt && <Box>This invite has already been accepted.</Box>}
           {invite?.revokedAt && <Box>This invite is no longer available.</Box>}
           {invite && invite.acceptedAt === null && invite.revokedAt === null && (
