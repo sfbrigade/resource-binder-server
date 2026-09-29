@@ -6,6 +6,27 @@ test('Better Auth administration', async (t) => {
   const fixture = await buildAuth(t);
   const { app, prisma, mail } = fixture;
 
+  await t.test('native password limits reject oversized input before hashing or verification', async (t) => {
+    const member = await verifiedUser(fixture);
+    const { password: passwords } = await fixture.auth.$context;
+    const hash = t.mock.method(passwords, 'hash');
+    const verify = t.mock.method(passwords, 'verify');
+    const response = await post(app, '/sign-in/email', { email: member.user.email, password: 'a'.repeat(129) });
+    assert.equal(response.statusCode, 400, response.body);
+    assert.equal(response.json().code, 'PASSWORD_TOO_LONG');
+    await assert.rejects(fixture.auth.api.createUser({
+      body: {
+        name: 'Test Person',
+        email: 'oversized@example.com',
+        password: 'a'.repeat(129),
+        data: { firstName: 'Test', lastName: 'Person' },
+      }
+    }), error => error.statusCode === 400 && error.body.code === 'PASSWORD_TOO_LONG');
+    assert.equal(hash.mock.callCount(), 0);
+    assert.equal(verify.mock.callCount(), 0);
+    assert.equal(await prisma.user.count({ where: { email: 'oversized@example.com' } }), 0);
+  });
+
   for (const hasPassword of [true, false]) {
     await t.test(`admin password changes revoke only the target user's sessions (existing password: ${hasPassword})`, async () => {
       const admin = await verifiedAdmin(fixture);
