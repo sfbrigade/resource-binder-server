@@ -19,6 +19,8 @@ const InviteAttributesSchema = z.object({
 });
 
 const InviteResponseSchema = InviteAttributesSchema.extend({
+  lastName: InviteAttributesSchema.shape.lastName.nullable(),
+  message: InviteAttributesSchema.shape.message.nullable(),
   id: z.string().uuid(),
   updatedAt: z.coerce.date(),
   createdAt: z.coerce.date(),
