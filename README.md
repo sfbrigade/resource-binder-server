@@ -20,9 +20,10 @@ Before starting the server, configure `server/.env` (copy `server/example.env` i
 
 - `BETTER_AUTH_SECRET`: generate a private secret with `openssl rand -base64 32`.
   The example placeholder deliberately fails startup. Never include this secret in a client app.
-- `BASE_URL`: the public API origin; HTTPS is required in production.
+- `BASE_URL`: the public API origin, such as `https://example.com`, without `/api`.
+  HTTPS is required in production. Route folders supply the `/api` prefix.
 - `AUTH_LINK_BASE_URL`: optional email-link origin, defaulting to `BASE_URL`.
-  A separate origin must also serve the `/auth/*` landing routes.
+  A separate origin must also serve the `/api/auth/links/*` landing routes.
 - `TRUSTED_PROXIES`: comma-separated IP addresses or CIDRs of your reverse proxies.
   Set this when deploying behind a proxy so authentication rate limits and session
   IPs identify each client. Leave unset for direct connections. Only include proxies
@@ -32,13 +33,18 @@ Before starting the server, configure `server/.env` (copy `server/example.env` i
 - `VITE_FEATURE_REGISTRATION`: when not `true`, signup requires a matching, unused
   invitation. Signup also requires `firstName` and `lastName`.
 
-Email links open `/auth/*` instruction pages without consuming tokens. Native apps
+Email links open `/api/auth/links/*` instruction pages without consuming tokens. Native apps
 must handle those links and exchange their tokens with the API. The mobile app
 owns link routing, verification/reset screens, and secure session persistence.
 The email-link domain must host iOS/Android association files; these can be served
 by this backend or its hosting layer once the app identifiers are known. Those
 association files and mobile handlers are separate work. Magic links only sign in
 existing accounts. Email-change endpoints are disabled.
+
+Forward `/api/...` requests unchanged to the backend; the proxy must not add or
+strip `/api`. API callers whose base URL already ends in `/api` append `/auth/...`.
+Mobile email-link handlers must recognize `/api/auth/links/...`. Previously sent
+`/auth/...` links require fresh emails; no legacy landing routes are retained.
 
 Reset links are single-use and expire after 30 minutes. Password changes leave
 other unused reset links valid until expiry, following Better Auth's token lifecycle.
