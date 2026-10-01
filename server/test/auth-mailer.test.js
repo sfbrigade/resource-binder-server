@@ -47,7 +47,10 @@ test('verification email delivery', async (t) => {
   for (const [name, relativePath] of [['repository root', '../../'], ['server directory', '../']]) {
     await t.test(`renders and verifies when invoked from the ${name}`, async () => {
       const cwd = process.cwd();
+      const previousLinkOrigin = process.env.AUTH_LINK_BASE_URL;
+      const linkOrigin = name === 'server directory' ? 'https://links.example.com' : process.env.BASE_URL;
       try {
+        process.env.AUTH_LINK_BASE_URL = linkOrigin;
         process.chdir(fileURLToPath(new URL(relativePath, import.meta.url)));
         configureMailer(nodemailerMock);
         const auth = createAuth(prisma);
@@ -64,13 +67,15 @@ test('verification email delivery', async (t) => {
         assert.ok(token);
         for (const body of [message.html, message.text]) {
           assert.ok(body.includes('Hello First,'));
-          assert.ok(body.includes(`/auth/verify-email?token=${encodeURIComponent(token)}`));
+          assert.ok(body.includes(`${linkOrigin}/api/auth/links/verify-email?token=${encodeURIComponent(token)}`));
         }
         assert.equal((await app.inject(`/api/auth/verify-email?token=${token}`)).statusCode, 200);
         const verified = await prisma.user.findUnique({ where: { id: user.id } });
         assert.equal(verified.emailVerified, true);
         assert.equal(verified.role, 'admin');
       } finally {
+        if (previousLinkOrigin === undefined) delete process.env.AUTH_LINK_BASE_URL;
+        else process.env.AUTH_LINK_BASE_URL = previousLinkOrigin;
         process.chdir(cwd);
         configureMailer(nodemailerMock);
       }

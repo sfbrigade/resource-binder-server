@@ -3,13 +3,11 @@ import { StatusCodes } from 'http-status-codes';
 
 import { fromNodeHeaders } from 'better-auth/node';
 import { createAuth } from '#lib/auth.js';
-import { registerAuthRoutes } from '#lib/auth-http.js';
 import User from '#models/user.js';
 
 export default fp(async function (fastify) {
   const auth = createAuth(fastify.prisma);
   fastify.decorate('auth', auth);
-  registerAuthRoutes(fastify, auth);
   fastify.decorateRequest('user', null);
   fastify.addHook('onRequest', async (request, reply) => {
     if (request.url.startsWith('/api/auth/')) return;

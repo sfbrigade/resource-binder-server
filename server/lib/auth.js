@@ -44,7 +44,7 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
     throw new Error('Authentication origins must use HTTPS in production.');
   }
   const appLink = (action, token) => {
-    const url = new URL(`/auth/${action}`, linkOrigin);
+    const url = new URL(`/api/auth/links/${action}`, linkOrigin);
     url.searchParams.set('token', token);
     return url.toString();
   };

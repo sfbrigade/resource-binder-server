@@ -60,6 +60,11 @@ test('Better Auth email delivery policy', async (t) => {
         sending.mock.restore();
       }
       const token = await mailToken(mail);
+      const link = new URL(mail.getSentMail()[0].text.match(/http[^\s]+/)[0]);
+      assert.equal(link.origin, new URL(process.env.AUTH_LINK_BASE_URL || process.env.BASE_URL).origin);
+      assert.equal(link.pathname, `/api/auth/links/${action}`);
+      assert.equal(link.searchParams.get('token'), token);
+      assert.equal((await app.inject(`${link.pathname}${link.search}`)).statusCode, 200);
       const redeemed = action === 'reset-password'
         ? await post('/reset-password', { token, newPassword: `${password}Changed` })
         : await app.inject(`/api/auth/${action === 'magic-link' ? 'magic-link/verify' : 'verify-email'}?token=${encodeURIComponent(token)}`);

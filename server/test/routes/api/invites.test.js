@@ -23,6 +23,12 @@ test('/api/invites', async (t) => {
 
   await t.test('POST /', async (t) => {
     await t.test('creates a new Invite', async (t) => {
+      const previousLinkOrigin = process.env.AUTH_LINK_BASE_URL;
+      process.env.AUTH_LINK_BASE_URL = 'https://links.example.com/';
+      t.after(() => {
+        if (previousLinkOrigin === undefined) delete process.env.AUTH_LINK_BASE_URL;
+        else process.env.AUTH_LINK_BASE_URL = previousLinkOrigin;
+      });
       const response = await app.inject().post('/api/invites').payload({
         firstName: 'John',
         lastName: 'Doe',
@@ -51,6 +57,9 @@ test('/api/invites', async (t) => {
       assert.ok(mail.html.includes(data.id));
       assert.ok(mail.text.includes('Welcome!'));
       assert.ok(mail.text.includes(data.id));
+      for (const body of [mail.html, mail.text]) {
+        assert.ok(body.includes(`https://links.example.com/api/auth/links/invite?inviteId=${data.id}`));
+      }
     });
 
     for (const [omitted, attributes] of [

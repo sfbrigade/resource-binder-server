@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { request } from 'node:http';
 import Fastify from 'fastify';
 import { authenticate, build, mailToken, nodemailerMock, password } from '#test/helper.js';
-import { registerAuthRoutes } from '#lib/auth-http.js';
+import authRoutes from '../../../routes/api/auth/index.js';
 import { options } from '../../../app.js';
 
 test('application Better Auth cutover', async (t) => {
@@ -19,7 +19,7 @@ test('application Better Auth cutover', async (t) => {
       .headers({ origin: process.env.BASE_URL })
       .payload({ email: 'person@example.com' })).statusCode, 200);
     const token = await mailToken(nodemailerMock.mock);
-    const landing = await app.inject(`/auth/magic-link?token=${token}`);
+    const landing = await app.inject(`/api/auth/links/magic-link?token=${token}`);
     assert.equal(landing.statusCode, 200);
     const login = await app.inject(`/api/auth/magic-link/verify?token=${token}`);
     assert.equal(login.statusCode, 200, login.body);
@@ -71,7 +71,8 @@ test('application Better Auth cutover', async (t) => {
     const logs = [];
     const loggedApp = Fastify({ logger: { ...options.logger, stream: { write: line => logs.push(line) } } });
     t.after(() => loggedApp.close());
-    registerAuthRoutes(loggedApp, app.auth);
+    loggedApp.decorate('auth', app.auth);
+    await loggedApp.register(authRoutes, { prefix: '/api/auth' });
     await loggedApp.listen({ host: '127.0.0.1', port: 0 });
     for (const path of [
       `/api/auth/reset-password/${token}`,
@@ -82,7 +83,7 @@ test('application Better Auth cutover', async (t) => {
     ]) {
       // Injection/fetch normalize dot segments before sending; preserve the raw target.
       const response = await new Promise((resolve, reject) => {
-        request({ host: '127.0.0.1', port: loggedApp.server.address().port, path: `${path}?callbackURL=/auth/reset-password` }, res => {
+        request({ host: '127.0.0.1', port: loggedApp.server.address().port, path: `${path}?callbackURL=/api/auth/links/reset-password` }, res => {
           res.resume();
           res.on('end', () => resolve(res));
           res.on('error', reject);
@@ -99,7 +100,7 @@ test('application Better Auth cutover', async (t) => {
 
   await t.test('access log serializer excludes link tokens and headers', () => {
     for (const [url, route] of [
-      ['/auth/magic-link?token=secret', '/auth/magic-link'],
+      ['/api/auth/links/magic-link?token=secret', '/api/auth/links/magic-link'],
       ['/api/auth/reset-password/secret?callbackURL=/', '/api/auth/*'],
       ['/api/auth/reset-password/encoded%2Dsecret/', '/api/auth/*'],
       ['/api/auth/reset-password', '/api/auth/*'],

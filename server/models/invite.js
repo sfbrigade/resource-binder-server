@@ -59,7 +59,8 @@ class Invite extends Base {
 
   async sendInviteEmail () {
     const { firstName, message } = this;
-    const url = `${process.env.AUTH_LINK_BASE_URL || process.env.BASE_URL}/auth/invite?inviteId=${this.id}`;
+    const url = new URL('/api/auth/links/invite', process.env.AUTH_LINK_BASE_URL || process.env.BASE_URL);
+    url.searchParams.set('inviteId', this.id);
     return mailer.send({
       message: {
         to: this.fullNameAndEmail,
@@ -68,7 +69,7 @@ class Invite extends Base {
       locals: {
         firstName,
         message,
-        url,
+        url: url.toString(),
       },
     });
   }

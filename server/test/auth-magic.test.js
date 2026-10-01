@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
-import { registerAuthRoutes } from '#lib/auth-http.js';
+import authRoutes from '../routes/api/auth/index.js';
 import mailer from '#lib/mailer.js';
 import { build, mailToken, nodemailerMock, password, verifiedAdmin, verifiedUser, waitForMail } from '#test/helper.js';
 
@@ -25,13 +25,14 @@ test('Better Auth magic links and native sessions', async (t) => {
     assert.ok(stored.length);
     assert.ok(stored.every(row => row.identifier !== token));
     for (const action of ['magic-link', 'verify-email', 'reset-password', 'invite']) {
-      const landing = await app.inject(`/auth/${action}?token=${token}`);
+      const landing = await app.inject(`/api/auth/links/${action}?token=${token}`);
       assert.equal(landing.statusCode, 200);
       assert.ok(landing.body.includes('Open this link on your phone'));
       assert.ok(!landing.body.includes(token));
       assert.equal(landing.headers['set-cookie'], undefined);
       assert.equal(landing.headers['cache-control'], 'no-store');
       assert.equal(landing.headers['referrer-policy'], 'no-referrer');
+      assert.equal(landing.headers['content-security-policy'], "default-src 'none'");
     }
     const response = await app.inject(`/api/auth/magic-link/verify?token=${token}`);
     assert.equal(response.statusCode, 200);
@@ -171,7 +172,8 @@ test('Better Auth magic links and native sessions', async (t) => {
     }
     const proxied = Fastify({ ...options, logger: false });
     t.after(() => proxied.close());
-    registerAuthRoutes(proxied, app.auth);
+    proxied.decorate('auth', app.auth);
+    await proxied.register(authRoutes, { prefix: '/api/auth' });
     const request = (remoteAddress, ip) => proxied.inject({
       method: 'POST',
       url: '/api/auth/sign-in/magic-link',
