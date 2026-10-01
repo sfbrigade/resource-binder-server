@@ -11,6 +11,53 @@ This repository contains a "starter" project for web application development in 
 - Node.js
 - Postgres
 
+## Authentication setup and migration
+
+Authentication uses [Better Auth](https://better-auth.com/) under `/api/auth`, with
+the Magic Link, Bearer, and Admin plugins. Refer to its documentation for standard APIs.
+
+Before starting the server, configure `server/.env` (copy `server/example.env` if needed):
+
+- `BETTER_AUTH_SECRET`: generate a private secret with `openssl rand -base64 32`.
+  The example placeholder deliberately fails startup. Never include this secret in a client app.
+- `BASE_URL`: the public API origin, such as `https://example.com`, without `/api`.
+  HTTPS is required in production. Route folders supply the `/api` prefix.
+- `AUTH_LINK_BASE_URL`: optional email-link origin, defaulting to `BASE_URL`.
+  A separate origin must also serve the `/api/auth/links/*` landing routes.
+- `TRUSTED_PROXIES`: comma-separated IP addresses or CIDRs of your reverse proxies.
+  Set this when deploying behind a proxy so authentication rate limits and session
+  IPs identify each client. Leave unset for direct connections. Only include proxies
+  you control that sanitize forwarded headers; do not trust every address.
+- `SMTP_ENABLED=true` and the existing mail settings are required for signup and
+  email delivery. Local development uses Mailcatcher.
+- `VITE_FEATURE_REGISTRATION`: when not `true`, signup requires a matching, unused
+  invitation. Signup also requires `firstName` and `lastName`.
+
+Email links open `/api/auth/links/*` instruction pages without consuming tokens. Native apps
+must handle those links and exchange their tokens with the API. The mobile app
+owns link routing, verification/reset screens, and secure session persistence.
+The email-link domain must host iOS/Android association files; these can be served
+by this backend or its hosting layer once the app identifiers are known. Those
+association files and mobile handlers are separate work. Magic links only sign in
+existing accounts. Email-change endpoints are disabled.
+
+Forward `/api/...` requests unchanged to the backend; the proxy must not add or
+strip `/api`. API callers whose base URL already ends in `/api` append `/auth/...`.
+Mobile email-link handlers must recognize `/api/auth/links/...`. Previously sent
+`/auth/...` links require fresh emails; no legacy landing routes are retained.
+
+Reset links are single-use and expire after 30 minutes. Password changes leave
+other unused reset links valid until expiry, following Better Auth's token lifecycle.
+Password resets revoke sessions through the built-in option; admin password changes
+also force logout through Better Auth's native session-revocation API.
+
+The cutover removes legacy password/reset fields and sessions are not imported.
+Existing development users must verify their email and reset their password. This
+is not a production password migration or a reversible rollback. The React
+authentication screens still call retired endpoints and need a separate migration
+before the web client is used.
+Server startup applies the checked-in migrations; it never resets the database.
+
 ## One-time Setup
 
 1. On Github, "Fork" this git repo to your own account so that you have your own copy.
@@ -58,10 +105,13 @@ This repository contains a "starter" project for web application development in 
    Once you're logged in, you will be in a new shell for the container where you can run the following command:
 
    ```
-   bin/create-admin.js Firstname Lastname email password
+   npx auth@1.7.6 create-admin --config ./server/auth.js --email admin@example.com --name 'Firstname Lastname' --data '{"firstName":"Firstname","lastName":"Lastname"}'
    ```
 
-   Put in your name and email address and a password. This will create a first admin user in the database.
+   Substitute your name and email address. Better Auth's official CLI prompts for a password
+   and creates the initial administrator as verified, so no verification email is needed.
+   Use a long, unique password. The CLI version is pinned independently of the server's
+   Better Auth version; see the [CLI documentation](https://better-auth.com/docs/concepts/cli#create-admin).
 
 7. To stop the server, press CONTROL-C in the window with the running server.
    If it is successful, you will see something like this:
@@ -133,6 +183,10 @@ to a running server container as describe above (`docker compose exec server bas
 `npm test`. The server tests use the Testcontainers library to automatically launch test databases and
 storage servers for testing- if tests terminate unexpectedly, you may have dangling/orphan containers
 running. Use `docker ps` to list and check running containers.
+
+From the repository root on your host, use `CI=true npm test -w server` with Docker
+available. The tests use disposable databases and mocked mail, leaving development
+data untouched and sending no real email.
 
 ## Shell Command Quick Reference
 
