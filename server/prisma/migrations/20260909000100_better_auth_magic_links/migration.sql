@@ -5,8 +5,7 @@ ADD COLUMN     "banned" BOOLEAN NOT NULL DEFAULT false,
 ADD COLUMN     "emailVerified" BOOLEAN NOT NULL DEFAULT false,
 ADD COLUMN     "image" TEXT,
 ADD COLUMN     "name" TEXT NOT NULL DEFAULT '',
-ADD COLUMN     "role" TEXT NOT NULL DEFAULT 'user',
-ALTER COLUMN "hashedPassword" DROP NOT NULL;
+ADD COLUMN     "role" TEXT NOT NULL DEFAULT 'user';
 
 -- CreateTable
 CREATE TABLE "Session" (
@@ -87,3 +86,18 @@ ALTER TABLE "Session" ADD CONSTRAINT "Session_userId_fkey" FOREIGN KEY ("userId"
 
 -- AddForeignKey
 ALTER TABLE "Account" ADD CONSTRAINT "Account_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- Preserve profile/access metadata; legacy passwords and sessions are not imported.
+UPDATE "User" SET "name" = "firstName" || ' ' || "lastName" WHERE "name" = '';
+UPDATE "User" SET "role" = 'admin' WHERE "isAdmin" = true;
+UPDATE "User" SET "banned" = true WHERE "deactivatedAt" IS NOT NULL;
+
+-- DropIndex
+DROP INDEX "User_passwordResetToken_key";
+
+-- AlterTable
+ALTER TABLE "User" DROP COLUMN "hashedPassword",
+DROP COLUMN "isAdmin",
+DROP COLUMN "passwordResetExpiresAt",
+DROP COLUMN "passwordResetToken",
+DROP COLUMN "deactivatedAt";

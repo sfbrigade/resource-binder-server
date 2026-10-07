@@ -57,6 +57,10 @@ is not a production password migration or a reversible rollback. The React
 authentication screens still call retired endpoints and need a separate migration
 before the web client is used.
 Server startup applies the checked-in migrations; it never resets the database.
+The Better Auth changes are consolidated in `20260909000100_better_auth_magic_links`.
+Databases that already applied the former foundation, cutover, or deactivation
+migrations need their migration history reconciled before using this sequence,
+even if the account tables are empty. Do not reset a database containing directory data.
 
 ## One-time Setup
 
