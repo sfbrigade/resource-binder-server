@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
-import authRoutes from '../routes/api/auth/index.js';
+import authRoutes from '#routes/api/auth/index.js';
 import mailer from '#lib/mailer.js';
 import { build, mailToken, nodemailerMock, password, verifiedAdmin, verifiedUser, waitForMail } from '#test/helper.js';
 

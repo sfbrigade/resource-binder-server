@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { request } from 'node:http';
 import Fastify from 'fastify';
 import { authenticate, build, mailToken, nodemailerMock, password } from '#test/helper.js';
-import authRoutes from '../../../routes/api/auth/index.js';
-import { options } from '../../../app.js';
+import authRoutes from '#routes/api/auth/index.js';
+import { options } from '#app.js';
 
 test('application Better Auth cutover', async (t) => {
   const app = await build(t);

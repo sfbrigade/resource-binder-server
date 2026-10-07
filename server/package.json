@@ -63,9 +63,11 @@
     "yaml": "^2.8.2"
   },
   "imports": {
+    "#app.js": "./app.js",
     "#lib/*.js": "./lib/*.js",
     "#models/*.js": "./models/*.js",
     "#prisma/*.js": "./prisma/*.js",
+    "#routes/*.js": "./routes/*.js",
     "#test/*.js": "./test/*.js"
   }
 }
