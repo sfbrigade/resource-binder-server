@@ -4,8 +4,8 @@ import '../config.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { importSheltertechDump } from '../lib/sheltertech-import.js';
-import prisma from '../prisma/client.js';
+import { importSheltertechDump } from '#lib/sheltertech-import.js';
+import prisma from '#prisma/client.js';
 
 const defaultDumpPath = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),

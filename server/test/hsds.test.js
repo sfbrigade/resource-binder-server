@@ -5,8 +5,8 @@ import { fastifyZodOpenApiPlugin, serializerCompiler, validatorCompiler } from '
 
 import { taxonomyTermParentWhere } from '#lib/hsds-query.js';
 import { pageResponse, serializeOrganization, serializeService, serializeTaxonomyTerm } from '#models/hsds.js';
-import { apiMetadata, HSDS_DATA_GUIDE_URL } from '../routes/api/index.js';
-import taxonomyTermRoutes from '../routes/api/taxonomy_terms/index.js';
+import { apiMetadata, HSDS_DATA_GUIDE_URL } from '#routes/api/index.js';
+import taxonomyTermRoutes from '#routes/api/taxonomy_terms/index.js';
 
 test('HSDS serializers', async (t) => {
   await t.test('uses HSDS field names and enum values without inventing null data', () => {
