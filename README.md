@@ -109,7 +109,8 @@ even if the account tables are empty. Do not reset a database containing directo
    Once you're logged in, you will be in a new shell for the container where you can run the following command:
 
    ```
-   npx auth@1.7.6 create-admin --config ./server/auth.js --email admin@example.com --name 'Firstname Lastname' --data '{"firstName":"Firstname","lastName":"Lastname"}'
+   cd server
+   bin/create-admin First Last email@address.com
    ```
 
    Substitute your name and email address. Better Auth's official CLI prompts for a password
