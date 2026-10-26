@@ -114,6 +114,21 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
       }),
     },
     databaseHooks: {
+      user: {
+        update: {
+          async before (data, ctx) {
+            if (ctx?.path !== '/admin/set-role' || !data.role?.split(',').includes('admin')) return;
+            // The native endpoint authorizes the caller before this update hook runs.
+            const target = await ctx.context.internalAdapter.findUserById(ctx.body.userId);
+            if (!target?.emailVerified) {
+              throw new APIError('BAD_REQUEST', {
+                code: 'TARGET_EMAIL_NOT_VERIFIED',
+                message: 'This user must verify their email before becoming an administrator.',
+              });
+            }
+          },
+        },
+      },
       account: {
         create: {
           async before (account, ctx) {
