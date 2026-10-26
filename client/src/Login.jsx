@@ -44,6 +44,11 @@ function Login () {
     onSettled: () => window.scrollTo({ top: 0, behavior: 'smooth' }),
   });
 
+  const verificationMutation = useMutation({
+    mutationFn: () => Api.auth.sendVerificationEmail(form.getValues().email),
+    onError: (errors) => form.setErrors(errors),
+  });
+
   return (
     <>
       <Head>
@@ -56,6 +61,12 @@ function Login () {
             <Stack w={{ base: '100%', xs: 320 }}>
               {location.state?.flash && <Alert>{location.state?.flash}</Alert>}
               {form.errors._form && <Alert color='red'>{form.errors._form}</Alert>}
+              {form.errors._code === 'EMAIL_NOT_VERIFIED' && (
+                <Button variant='light' loading={verificationMutation.isPending} onClick={() => verificationMutation.mutate()}>
+                  Resend verification email
+                </Button>
+              )}
+              {verificationMutation.isSuccess && <Alert>Please check your email for a verification link.</Alert>}
               <TextInput
                 {...form.getInputProps('email')}
                 key={form.key('email')}
