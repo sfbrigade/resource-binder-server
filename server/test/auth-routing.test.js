@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
+import { runInNewContext } from 'node:vm';
 import AutoLoad from '@fastify/autoload';
 import Fastify from 'fastify';
 
@@ -55,7 +57,25 @@ test('autoloaded auth routes apply the API prefix once and keep landing pages se
     assert.doesNotMatch(response.body, /test-token|test-invite/);
     assert.equal(response.headers['cache-control'], 'no-store');
     assert.equal(response.headers['referrer-policy'], 'no-referrer');
-    assert.equal(response.headers['content-security-policy'], "default-src 'none'");
+    const script = response.body.match(/<script>([\s\S]*?)<\/script>/)[1];
+    const hash = createHash('sha256').update(script).digest('base64');
+    assert.equal(response.headers['content-security-policy'], `default-src 'none'; script-src 'sha256-${hash}'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`);
+    const link = { hidden: true };
+    runInNewContext(script, {
+      URL,
+      window: { location: { href: `https://links.example.com/api/auth/links/${action}?token=test-token&inviteId=test-invite` } },
+      document: { getElementById: () => link },
+    });
+    const paths = { 'magic-link': '/auth/magic-link?token=test-token', 'verify-email': '/auth/verify-email?token=test-token', 'reset-password': '/passwords/reset?token=test-token', invite: '/invites/test-invite' };
+    assert.equal(link.href, `https://example.com${paths[action]}`, 'Continue on the web origin, including when mail links use a separate domain');
+    assert.equal(link.hidden, false);
+    const missingTokenLink = { hidden: true };
+    runInNewContext(script, {
+      URL,
+      window: { location: { href: `https://links.example.com/api/auth/links/${action}` } },
+      document: { getElementById: () => missingTokenLink },
+    });
+    assert.equal(missingTokenLink.hidden, true);
     assert.equal(response.headers['set-cookie'], undefined);
     assert.equal(response.headers['set-auth-token'], undefined);
   }

@@ -33,9 +33,12 @@ Before starting the server, configure `server/.env` (copy `server/example.env` i
 - `VITE_FEATURE_REGISTRATION`: when not `true`, signup requires a matching, unused
   invitation. Signup also requires `firstName` and `lastName`.
 
-Email links open `/api/auth/links/*` instruction pages without consuming tokens. Native apps
-must handle those links and exchange their tokens with the API. The mobile app
-owns link routing, verification/reset screens, and secure session persistence.
+Email links open `/api/auth/links/*` instruction pages without consuming tokens. Browsers
+offer a **Continue in browser** link to the web app at `BASE_URL`, where users can
+verify email, reset passwords, accept invitations, or confirm magic-link login.
+Verification and magic-link tokens are redeemed only after confirmation; reset tokens
+are redeemed when the new password is submitted. Native apps must handle the original
+links and exchange their tokens with the API, and own their screens and secure session persistence.
 The email-link domain must host iOS/Android association files; these can be served
 by this backend or its hosting layer once the app identifiers are known. Those
 association files and mobile handlers are separate work. Magic links only sign in
@@ -53,9 +56,10 @@ also force logout through Better Auth's native session-revocation API.
 
 The cutover removes legacy password/reset fields and sessions are not imported.
 Existing development users must verify their email and reset their password. This
-is not a production password migration or a reversible rollback. The React
-authentication screens still call retired endpoints and need a separate migration
-before the web client is used.
+is not a production password migration or a reversible rollback. The React client
+uses Better Auth's native endpoints and browser session cookies; after login it
+loads `/api/users/me` for the application profile and admin permissions. New registrations
+stay signed out until email verification, and the login form offers verification resends.
 Server startup applies the checked-in migrations; it never resets the database.
 The Better Auth changes are consolidated in `20260909000100_better_auth_magic_links`.
 Databases that already applied the former foundation, cutover, or deactivation

@@ -18,7 +18,7 @@ test('Better Auth magic links and native sessions', async (t) => {
     return mailToken(mail);
   }
 
-  await t.test('app exchanges a single-use token for a bearer session; browser never consumes it', async () => {
+  await t.test('app exchanges a single-use token for a bearer session; landing pages never consume it', async () => {
     const { user } = await verifiedUser(app);
     const token = await requestLink(user.email);
     const stored = await prisma.verification.findMany();
@@ -32,7 +32,7 @@ test('Better Auth magic links and native sessions', async (t) => {
       assert.equal(landing.headers['set-cookie'], undefined);
       assert.equal(landing.headers['cache-control'], 'no-store');
       assert.equal(landing.headers['referrer-policy'], 'no-referrer');
-      assert.equal(landing.headers['content-security-policy'], "default-src 'none'");
+      assert.match(landing.headers['content-security-policy'], /^default-src 'none'; script-src 'sha256-[A-Za-z0-9+/=]+';/);
     }
     const response = await app.inject(`/api/auth/magic-link/verify?token=${token}`);
     assert.equal(response.statusCode, 200);
