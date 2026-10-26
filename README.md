@@ -60,6 +60,16 @@ is not a production password migration or a reversible rollback. The React clien
 uses Better Auth's native endpoints and browser session cookies; after login it
 loads `/api/users/me` for the application profile and admin permissions. New registrations
 stay signed out until email verification, and the login form offers verification resends.
+
+To add subsequent administrators, an existing admin can invite a user, wait for email
+verification, then open **Admin → Users → Edit Profile** and save **Administrator access**.
+Role changes use Better Auth's `/api/auth/admin/set-role` endpoint separately from profile
+updates. The server rejects promotion of unverified accounts, and role changes apply to
+existing sessions immediately. The admin interface displays verification status and
+refreshes user information after a role change. HTTP account creation remains unavailable
+to admins; use the bootstrap CLI for the first admin. Profile editing supports names and
+picture updates; email is read-only and password recovery uses the dedicated reset flow.
+
 Server startup applies the checked-in migrations; it never resets the database.
 The Better Auth changes are consolidated in `20260909000100_better_auth_magic_links`.
 Databases that already applied the former foundation, cutover, or deactivation

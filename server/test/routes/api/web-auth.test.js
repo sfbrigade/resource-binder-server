@@ -29,6 +29,70 @@ test('web client authentication through the application routes', async (t) => {
   }
   t.beforeEach(() => { cookie = ''; });
 
+  await t.test('an invited user verifies their email before an administrator promotes their existing session', async () => {
+    const email = 'invited@example.com';
+    await Api.auth.login('admin.user@test.com', 'test');
+    const invite = await Api.invites.create({ firstName: 'Invited', lastName: 'Person', email });
+    await Api.auth.logout();
+    process.env.VITE_FEATURE_REGISTRATION = 'false';
+    const signup = await Api.auth.register({ firstName: 'Invited', lastName: 'Person', email, password, inviteId: invite.data.id });
+    const token = await mailToken(nodemailerMock.mock);
+    const userId = signup.data.user.id;
+    assert.equal((await app.prisma.invite.findUnique({ where: { id: invite.data.id } })).acceptedById, userId);
+    await Api.auth.login('admin.user@test.com', 'test');
+    await assert.rejects(Api.users.setRole(userId, 'admin'), { _form: 'This user must verify their email before becoming an administrator.' });
+    await Api.auth.logout();
+    await Api.auth.verifyEmail(token);
+    await Api.auth.login(email, password);
+    const memberCookie = cookie;
+    // Four synthetic sign-ins share one connection IP; rate limits have separate coverage.
+    await app.prisma.rateLimit.deleteMany();
+    await Api.auth.login('admin.user@test.com', 'test');
+    assert.equal((await Api.users.setRole(userId, 'admin')).data.isAdmin, true);
+    await Api.auth.logout();
+    cookie = memberCookie;
+    assert.equal((await Api.users.me()).data.isAdmin, true);
+    assert.equal((await Api.users.index()).status, 200, 'Promotion must apply without logging in again');
+  });
+
+  await t.test('the web client promotes verified users and demotes them through Better Auth', async () => {
+    const admin = await Api.auth.login('admin.user@test.com', 'test');
+    const memberId = 'dab5dff3-360d-4dbb-98dd-1990dfb5c4c5';
+    const pendingId = 'aa1fdcf6-a63c-454e-9775-2d6fd116fdb1';
+    await app.prisma.user.update({ where: { id: pendingId }, data: { emailVerified: false } });
+    assert.equal((await Api.users.get(memberId)).data.emailVerified, true);
+    assert.equal((await Api.users.get(pendingId)).data.emailVerified, false);
+    assert.equal((await Api.users.index()).data.find(user => user.id === pendingId).emailVerified, false);
+    const promoted = await Api.users.setRole(memberId, 'admin');
+    assert.equal(promoted.data.isAdmin, true);
+    assert.equal(promoted.data.emailVerified, true);
+    assert.equal((await Api.users.setRole(memberId, 'user')).data.isAdmin, false);
+    await assert.rejects(Api.users.setRole(pendingId, 'admin'), { _form: 'This user must verify their email before becoming an administrator.' });
+    assert.equal((await Api.users.me()).data.id, admin.data.id);
+    await Api.auth.logout();
+    await Api.auth.login('regular.user@test.com', 'test');
+    await assert.rejects(Api.users.setRole(memberId, 'admin'));
+    assert.equal((await app.prisma.user.findUnique({ where: { id: memberId } })).role, 'user');
+  });
+
+  await t.test('profile saves submit only editable profile fields and preserve credentials and roles', async () => {
+    const member = await Api.auth.login('regular.user@test.com', 'test');
+    const updated = await Api.users.update(member.data.id, {
+      ...member.data,
+      firstName: 'Updated',
+      email: 'changed@example.com',
+      password: 'NewPassword123!',
+      isAdmin: true,
+      emailVerified: false,
+    });
+    assert.equal(updated.data.firstName, 'Updated');
+    assert.equal(updated.data.email, member.data.email);
+    assert.equal(updated.data.isAdmin, false);
+    assert.equal(updated.data.emailVerified, true);
+    await Api.auth.logout();
+    assert.equal((await Api.auth.login(member.data.email, 'test')).data.id, member.data.id);
+  });
+
   await t.test('a verified administrator can log in, access admin routes and log out', async () => {
     const email = 'bootstrap@example.com';
     await app.auth.api.createUser({

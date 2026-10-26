@@ -145,8 +145,13 @@ const Api = {
     get (id) {
       return instance.get(`/api/users/${id}`);
     },
-    update (id, data) {
+    update (id, { firstName, lastName, picture }) {
+      const data = { firstName, lastName, ...(picture === undefined ? {} : { picture: picture || null }) };
       return instance.patch(`/api/users/${id}`, data).catch(handleError);
+    },
+    async setRole (id, role) {
+      await instance.post('/api/auth/admin/set-role', { userId: id, role }).catch(handleAuthError);
+      return Api.users.get(id);
     },
   },
 };
