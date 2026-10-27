@@ -18,6 +18,28 @@ test('Better Auth magic links and native sessions', async (t) => {
     return mailToken(mail);
   }
 
+  await t.test('the auth handler normalizes JSON magic-link errors before Fastify forwarding', async () => {
+    const headers = new Headers({ accept: 'application/json' });
+    const response = await app.auth.handler(new Request(`${process.env.BASE_URL}/api/auth/magic-link/verify?token=invalid`, { headers }));
+    assert.equal(response.status, 400);
+    assert.equal(response.headers.get('location'), null);
+    assert.equal(response.headers.get('set-cookie'), null);
+    assert.equal(response.headers.get('set-auth-token'), null);
+    assert.equal((await response.json()).code, 'INVALID_TOKEN');
+
+    const serverResponse = await app.auth.api.magicLinkVerify({ query: { token: 'invalid' }, headers, asResponse: true });
+    assert.equal(serverResponse.status, 302, 'Server-only API calls retain native error behavior');
+
+    for (const options of [
+      { headers: new Headers({ accept: 'text/html' }), query: { token: 'invalid' } },
+      { headers, query: { token: 'invalid', callbackURL: '/', errorCallbackURL: '/auth/magic-link' } },
+    ]) {
+      const redirect = await app.auth.api.magicLinkVerify({ ...options, asResponse: true });
+      assert.equal(redirect.status, 302);
+      assert.equal(new URL(redirect.headers.get('location')).searchParams.get('error'), 'INVALID_TOKEN');
+    }
+  });
+
   await t.test('app exchanges a single-use token for a bearer session; landing pages never consume it', async () => {
     const { user } = await verifiedUser(app);
     const token = await requestLink(user.email);
