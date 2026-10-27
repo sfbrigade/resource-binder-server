@@ -43,7 +43,7 @@ test('web client authentication through the application routes', async (t) => {
     await assert.rejects(Api.users.get(unavailableProfileId), error => error.response?.status === 503);
   });
 
-  await t.test('an invited user verifies their email before an administrator promotes their existing session', async () => {
+  await t.test('an invited user verifies their email and gains or loses admin access on their existing session', async () => {
     const email = 'invited@example.com';
     await Api.auth.login('admin.user@test.com', 'test');
     const invite = await Api.invites.create({ firstName: 'Invited', lastName: 'Person', email });
@@ -62,11 +62,16 @@ test('web client authentication through the application routes', async (t) => {
     // Four synthetic sign-ins share one connection IP; rate limits have separate coverage.
     await app.prisma.rateLimit.deleteMany();
     await Api.auth.login('admin.user@test.com', 'test');
+    const adminCookie = cookie;
     assert.equal((await Api.users.setRole(userId, 'admin')).data.user.role, 'admin');
-    await Api.auth.logout();
     cookie = memberCookie;
     assert.equal((await Api.users.me()).data.isAdmin, true);
     assert.equal((await Api.users.index()).status, 200, 'Promotion must apply without logging in again');
+    cookie = adminCookie;
+    assert.equal((await Api.users.setRole(userId, 'user')).data.user.role, 'user');
+    cookie = memberCookie;
+    assert.equal((await Api.users.me()).data.isAdmin, false);
+    await assert.rejects(Api.users.index(), error => error.response?.status === 403, 'Demotion must apply without logging in again');
   });
 
   await t.test('the web client promotes verified users and demotes them through Better Auth', async () => {
