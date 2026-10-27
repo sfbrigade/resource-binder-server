@@ -10,12 +10,14 @@ test('Better Auth administration', async (t) => {
   await t.test('administrators cannot remove their own admin access, including the sole administrator', async () => {
     const admin = await verifiedAdmin(app);
     assert.equal(await prisma.user.count({ where: { role: 'admin' } }), 1);
-    for (const role of ['user', ['user'], []]) {
-      const response = await app.inject().post('/api/auth/admin/set-role')
-        .headers({ origin: process.env.BASE_URL, ...admin.headers })
-        .payload({ userId: admin.user.id, role });
-      assert.equal(response.statusCode, 400, response.body);
-      assert.equal(response.json().code, 'SELF_DEMOTION_NOT_ALLOWED');
+    for (const userId of [admin.user.id, admin.user.id.toUpperCase(), `{${admin.user.id}}`, admin.user.id.replaceAll('-', '')]) {
+      for (const role of ['user', ['user'], []]) {
+        const response = await app.inject().post('/api/auth/admin/set-role')
+          .headers({ origin: process.env.BASE_URL, ...admin.headers })
+          .payload({ userId, role });
+        assert.equal(response.statusCode, 400, `${userId}: ${response.body}`);
+        assert.equal(response.json().code, 'SELF_DEMOTION_NOT_ALLOWED');
+      }
     }
     assert.equal((await prisma.user.findUnique({ where: { id: admin.user.id } })).role, 'admin');
     assert.equal((await app.inject({ url: '/api/users', headers: admin.headers })).statusCode, 200);
