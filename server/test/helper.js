@@ -11,7 +11,7 @@ import YAML from 'yaml';
 import { StatusCodes } from 'http-status-codes';
 import * as nodemailerMock from 'nodemailer-mock';
 
-import { GenericContainer } from 'testcontainers';
+import { GenericContainer, Wait } from 'testcontainers';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import {
   Builder,
@@ -125,7 +125,9 @@ async function build (t) {
   // set up a new storage container
   let storageContainer = new GenericContainer(compose.services.storage.image)
     .withEntrypoint(['rustfs', '/data'])
-    .withExposedPorts(9000);
+    .withExposedPorts(9000)
+    // A listening S3 port can still return plaintext 503s during storage startup.
+    .withWaitStrategy(Wait.forHttp('/health/ready', 9000).forStatusCode(200));
   if (!process.env.CI) {
     storageContainer = storageContainer.withNetworkMode('full-stack-starter');
   }
