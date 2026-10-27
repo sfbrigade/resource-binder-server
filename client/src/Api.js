@@ -145,8 +145,8 @@ const Api = {
     get (id) {
       return instance.get(`/api/users/${id}`);
     },
-    update (id, data) {
-      return instance.patch(`/api/users/${id}`, data).catch(handleError);
+    update (id, { firstName, lastName, picture }) {
+      return instance.patch(`/api/users/${id}`, { firstName, lastName, picture }).catch(handleError);
     },
   },
 };

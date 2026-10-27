@@ -42,6 +42,19 @@ test('web client authentication through the application routes', async (t) => {
     assert.equal((await Api.users.me()).status, 204);
   });
 
+  for (const email of ['regular.user@test.com', 'admin.user@test.com']) {
+    await t.test(`${email} can save a profile loaded by the web form`, async () => {
+      const login = await Api.auth.login(email, 'test');
+      const profile = await Api.users.get(login.data.id);
+      const saved = await Api.users.update(login.data.id, { ...profile.data, firstName: 'Updated', password: '' });
+      assert.equal(saved.status, 200);
+      assert.equal(saved.data.firstName, 'Updated');
+      assert.equal(saved.data.email, email);
+      assert.equal(saved.data.isAdmin, login.data.isAdmin);
+      assert.equal((await Api.users.me()).data.firstName, 'Updated');
+    });
+  }
+
   await t.test('password recovery sends mail, resets the password and permits login', async () => {
     const email = 'bootstrap@example.com';
     await app.auth.api.createUser({
