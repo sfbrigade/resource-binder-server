@@ -10,11 +10,9 @@ import { useAuthContext } from '../AuthContext';
 import PhotoInput from '../Components/PhotoInput';
 import UserRoleForm from './UserRoleForm';
 
-function UserForm () {
+function UserEditor ({ userId }) {
   const authContext = useAuthContext();
   const location = useLocation();
-  const params = useParams();
-  const userId = params.userId ?? authContext.user.id;
   const editingSelf = userId === authContext.user.id;
   const queryClient = useQueryClient();
   const [success, setSuccess] = useState(false);
@@ -39,26 +37,30 @@ function UserForm () {
   });
 
   useEffect(() => {
-    if (response) {
+    if (response && !form.initialized) {
       form.initialize({
         firstName: response.data.firstName,
         lastName: response.data.lastName,
         picture: response.data.picture,
       });
     }
-  }, [response]);
+  }, [response, form.initialized]);
 
   const onSubmitMutation = useMutation({
     mutationFn: (values) => Api.users.update(userId, values),
     onMutate: () => setSuccess(false),
-    onSuccess: async (response) => {
-      await queryClient.cancelQueries({ queryKey: ['users'] });
+    onSuccess: (response) => {
       queryClient.setQueryData(['users', userId], response);
       if (editingSelf) {
         queryClient.setQueryData(['users', 'me'], response.data);
         authContext.setUser(response.data);
       }
-      await queryClient.invalidateQueries({ queryKey: ['users'] });
+      form.setValues({
+        firstName: response.data.firstName,
+        lastName: response.data.lastName,
+        picture: response.data.picture,
+      });
+      queryClient.invalidateQueries({ queryKey: ['users'] });
       setSuccess(true);
     },
     onError: (errors) => form.setErrors(errors),
@@ -73,7 +75,7 @@ function UserForm () {
       <Container>
         <Title mb='md'>{editingSelf ? 'My Account' : 'Edit User'}</Title>
         {isLoading && <Alert>Loading user...</Alert>}
-        {isError && <Alert color='red'>Unable to load this user. Please try again.</Alert>}
+        {isError && <Alert color='red'>{response ? 'Unable to refresh this user. Displayed information may be out of date.' : 'Unable to load this user. Please try again.'}</Alert>}
         {response && (
           <Stack w={{ base: '100%', xs: 400 }}>
             <form onSubmit={form.onSubmit(onSubmitMutation.mutate)}>
@@ -112,6 +114,13 @@ function UserForm () {
       </Container>
     </>
   );
+}
+
+function UserForm () {
+  const { user } = useAuthContext();
+  const { userId } = useParams();
+  const id = userId ?? user.id;
+  return <UserEditor key={id} userId={id} />;
 }
 
 export default UserForm;

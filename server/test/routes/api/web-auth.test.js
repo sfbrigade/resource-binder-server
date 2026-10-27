@@ -6,9 +6,14 @@ import { build, mailToken, nodemailerMock, password } from '#test/helper.js';
 test('web client authentication through the application routes', async (t) => {
   const app = await build(t);
   let cookie = '';
+  let unavailableProfileId;
   // Exercise the web client's real request paths, bodies and error handling.
   const previousAdapter = axios.defaults.adapter;
   axios.defaults.adapter = async config => {
+    if (config.method === 'get' && config.url === `/api/users/${unavailableProfileId}`) {
+      const response = { status: 503, data: { message: 'Temporary profile read failure' }, config };
+      throw new axios.AxiosError('Profile read failed', undefined, config, undefined, response);
+    }
     const headers = { ...config.headers.toJSON(), origin: process.env.BASE_URL, cookie };
     const result = await app.inject({
       method: config.method.toUpperCase(),
@@ -27,7 +32,16 @@ test('web client authentication through the application routes', async (t) => {
   } finally {
     axios.defaults.adapter = previousAdapter;
   }
-  t.beforeEach(() => { cookie = ''; });
+  t.beforeEach(() => { cookie = ''; unavailableProfileId = undefined; });
+
+  await t.test('a confirmed role update succeeds even when profile reads are unavailable', async () => {
+    await Api.auth.login('admin.user@test.com', 'test');
+    unavailableProfileId = 'dab5dff3-360d-4dbb-98dd-1990dfb5c4c5';
+    const promoted = await Api.users.setRole(unavailableProfileId, 'admin');
+    assert.equal(promoted.data.user.role, 'admin');
+    assert.equal((await app.prisma.user.findUnique({ where: { id: unavailableProfileId } })).role, 'admin');
+    await assert.rejects(Api.users.get(unavailableProfileId), error => error.response?.status === 503);
+  });
 
   await t.test('an invited user verifies their email before an administrator promotes their existing session', async () => {
     const email = 'invited@example.com';
@@ -48,7 +62,7 @@ test('web client authentication through the application routes', async (t) => {
     // Four synthetic sign-ins share one connection IP; rate limits have separate coverage.
     await app.prisma.rateLimit.deleteMany();
     await Api.auth.login('admin.user@test.com', 'test');
-    assert.equal((await Api.users.setRole(userId, 'admin')).data.isAdmin, true);
+    assert.equal((await Api.users.setRole(userId, 'admin')).data.user.role, 'admin');
     await Api.auth.logout();
     cookie = memberCookie;
     assert.equal((await Api.users.me()).data.isAdmin, true);
@@ -64,9 +78,9 @@ test('web client authentication through the application routes', async (t) => {
     assert.equal((await Api.users.get(pendingId)).data.emailVerified, false);
     assert.equal((await Api.users.index()).data.find(user => user.id === pendingId).emailVerified, false);
     const promoted = await Api.users.setRole(memberId, 'admin');
-    assert.equal(promoted.data.isAdmin, true);
-    assert.equal(promoted.data.emailVerified, true);
-    assert.equal((await Api.users.setRole(memberId, 'user')).data.isAdmin, false);
+    assert.equal(promoted.data.user.role, 'admin');
+    assert.equal(promoted.data.user.emailVerified, true);
+    assert.equal((await Api.users.setRole(memberId, 'user')).data.user.role, 'user');
     await assert.rejects(Api.users.setRole(pendingId, 'admin'), { _form: 'This user must verify their email before becoming an administrator.' });
     assert.equal((await Api.users.me()).data.id, admin.data.id);
     await Api.auth.logout();

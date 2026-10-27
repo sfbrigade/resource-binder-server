@@ -66,9 +66,12 @@ verification, then open **Admin → Users → Edit Profile** and save **Administ
 Role changes use Better Auth's `/api/auth/admin/set-role` endpoint separately from profile
 updates. The server rejects promotion of unverified accounts, and role changes apply to
 existing sessions immediately. The admin interface displays verification status and
-refreshes user information after a role change. HTTP account creation remains unavailable
-to admins; use the bootstrap CLI for the first admin. Profile editing supports names and
-picture updates; email is read-only and password recovery uses the dedicated reset flow.
+refreshes user information after a role change. Administrators cannot remove their own
+admin access; another administrator must make that change. Confirmed role updates remain
+successful if a background profile refresh fails, and role saves preserve unsaved profile
+photos. HTTP account creation remains unavailable to admins; use the bootstrap CLI for
+the first admin. Profile editing supports names and picture updates; email is read-only
+and password recovery uses the dedicated reset flow.
 
 Server startup applies the checked-in migrations; it never resets the database.
 The Better Auth changes are consolidated in `20260909000100_better_auth_magic_links`.
