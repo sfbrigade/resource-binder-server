@@ -1,4 +1,4 @@
-import { useNavigate, useParams, useSearchParams, Link } from 'react-router';
+import { useParams, useSearchParams, Link } from 'react-router';
 import { Alert, Box, Button, Container, Fieldset, Group, Stack, TextInput, Title } from '@mantine/core';
 import { hasLength, useForm } from '@mantine/form';
 import { useMutation } from '@tanstack/react-query';
@@ -7,7 +7,6 @@ import { Head } from '@unhead/react';
 import Api from '../Api';
 
 function ResetPassword () {
-  const navigate = useNavigate();
   const params = useParams();
   const [searchParams] = useSearchParams();
   const token = params.token || searchParams.get('token');
@@ -23,7 +22,8 @@ function ResetPassword () {
 
   const onSubmitMutation = useMutation({
     mutationFn: (values) => Api.passwords.update(token, values.password),
-    onSuccess: () => navigate('/login', { state: { flash: 'Your new password has been saved.' } }),
+    // Reload the current session and discard cached profiles after session revocation.
+    onSuccess: () => window.location.assign('/login?passwordReset=success'),
     onError: (errors) => form.setErrors(errors),
     onSettled: () => window.scrollTo({ top: 0, behavior: 'smooth' }),
   });

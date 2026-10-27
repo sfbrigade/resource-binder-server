@@ -72,6 +72,15 @@ test('web client authentication through the application routes', async (t) => {
     assert.equal(login.data.email, email);
   });
 
+  await t.test('resetting another account preserves the current browser session', async () => {
+    const login = await Api.auth.login('admin.user@test.com', 'test');
+    await Api.passwords.reset('regular.user@test.com');
+    await Api.passwords.update(await mailToken(nodemailerMock.mock), `${password}Changed`);
+    assert.equal((await Api.users.me()).data.id, login.data.id);
+    await Api.auth.logout();
+    assert.equal((await Api.auth.login('regular.user@test.com', `${password}Changed`)).data.email, 'regular.user@test.com');
+  });
+
   await t.test('signup remains signed out until email verification, then returns the application profile', async () => {
     const email = 'new.user@example.com';
     const signup = await Api.auth.register({ email, password, firstName: 'New', lastName: 'User' });
