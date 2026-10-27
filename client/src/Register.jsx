@@ -4,19 +4,14 @@ import { useMutation } from '@tanstack/react-query';
 import { Head } from '@unhead/react';
 
 import Api from './Api';
-import { useAuthContext } from './AuthContext';
 import RegistrationForm from './RegistrationForm';
 
 function Register () {
-  const authContext = useAuthContext();
   const navigate = useNavigate();
 
   const onSubmitMutation = useMutation({
     mutationFn: (values) => Api.auth.register(values),
-    onSuccess: (response) => {
-      authContext.setUser(response.data);
-      navigate('/');
-    },
+    onSuccess: () => navigate('/login', { state: { flash: 'Please check your email to verify your account before logging in.' } }),
     onError: () => window.scrollTo(0, 0),
   });
 

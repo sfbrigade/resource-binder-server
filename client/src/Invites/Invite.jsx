@@ -23,10 +23,7 @@ function Invite () {
 
   const onSubmitMutation = useMutation({
     mutationFn: (values) => Api.auth.register({ ...values, inviteId }),
-    onSuccess: (response) => {
-      setAuthUser(response.data);
-      navigate('/account', { state: { flash: 'Your account has been created!' } });
-    },
+    onSuccess: () => navigate('/login', { state: { flash: 'Please check your email to verify your account before logging in.' } }),
     onError: () => window.scrollTo(0, 0),
   });
 
