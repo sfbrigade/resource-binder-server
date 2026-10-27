@@ -117,8 +117,16 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
       user: {
         update: {
           async before (data, ctx) {
-            if (ctx?.path !== '/admin/set-role' || !data.role?.split(',').includes('admin')) return;
+            if (ctx?.path !== '/admin/set-role') return;
             // The native endpoint authorizes the caller before this update hook runs.
+            const assigningAdmin = data.role?.split(',').includes('admin');
+            if (!assigningAdmin && ctx.body.userId === ctx.context.session.user.id) {
+              throw new APIError('BAD_REQUEST', {
+                code: 'SELF_DEMOTION_NOT_ALLOWED',
+                message: 'You cannot remove your own administrator access. Ask another administrator to make this change.',
+              });
+            }
+            if (!assigningAdmin) return;
             const target = await ctx.context.internalAdapter.findUserById(ctx.body.userId);
             if (!target?.emailVerified) {
               throw new APIError('BAD_REQUEST', {
