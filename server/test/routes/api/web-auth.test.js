@@ -120,6 +120,19 @@ test('web client authentication through the application routes', async (t) => {
     assert.equal((await Api.users.me()).status, 204);
   });
 
+  for (const email of ['regular.user@test.com', 'admin.user@test.com']) {
+    await t.test(`${email} can save a profile loaded by the web form`, async () => {
+      const login = await Api.auth.login(email, 'test');
+      const profile = await Api.users.get(login.data.id);
+      const saved = await Api.users.update(login.data.id, { ...profile.data, firstName: 'Updated', password: '' });
+      assert.equal(saved.status, 200);
+      assert.equal(saved.data.firstName, 'Updated');
+      assert.equal(saved.data.email, email);
+      assert.equal(saved.data.isAdmin, login.data.isAdmin);
+      assert.equal((await Api.users.me()).data.firstName, 'Updated');
+    });
+  }
+
   await t.test('password recovery sends mail, resets the password and permits login', async () => {
     const email = 'bootstrap@example.com';
     await app.auth.api.createUser({
@@ -135,6 +148,15 @@ test('web client authentication through the application routes', async (t) => {
     await assert.rejects(Api.auth.login(email, password), { _form: 'Invalid email and/or password.' });
     const login = await Api.auth.login(email, `${password}Changed`);
     assert.equal(login.data.email, email);
+  });
+
+  await t.test('resetting another account preserves the current browser session', async () => {
+    const login = await Api.auth.login('admin.user@test.com', 'test');
+    await Api.passwords.reset('regular.user@test.com');
+    await Api.passwords.update(await mailToken(nodemailerMock.mock), `${password}Changed`);
+    assert.equal((await Api.users.me()).data.id, login.data.id);
+    await Api.auth.logout();
+    assert.equal((await Api.auth.login('regular.user@test.com', `${password}Changed`)).data.email, 'regular.user@test.com');
   });
 
   await t.test('signup remains signed out until email verification, then returns the application profile', async () => {
@@ -164,6 +186,7 @@ test('web client authentication through the application routes', async (t) => {
     try {
       await assert.rejects(Api.auth.login('unknown@example.com', password), { _form: 'Invalid email and/or password.' });
       await assert.rejects(Api.auth.verifyEmail('invalid'), { _form: 'This link is invalid or has expired. Please request a new one.' });
+      await assert.rejects(Api.auth.verifyMagicLink('invalid'), { _form: 'This link is invalid or has expired. Please request a new one.' });
       await assert.rejects(Api.passwords.update('invalid', password), { _form: 'This link is invalid or has expired. Please request a new one.' });
       assert.equal(globalThis.window.location, '/login?from=/admin');
     } finally {
@@ -174,8 +197,33 @@ test('web client authentication through the application routes', async (t) => {
 
   await t.test('a magic email link establishes the browser session', async () => {
     await app.inject().post('/api/auth/sign-in/magic-link').payload({ email: 'regular.user@test.com' });
-    const login = await Api.auth.verifyMagicLink(await mailToken(nodemailerMock.mock));
+    const token = await mailToken(nodemailerMock.mock);
+    const login = await Api.auth.verifyMagicLink(token);
     assert.equal(login.data.email, 'regular.user@test.com');
     assert.equal((await Api.users.me()).data.id, login.data.id);
+    await assert.rejects(Api.auth.verifyMagicLink(token), { _form: 'This link is invalid or has expired. Please request a new one.' });
+    assert.equal((await Api.users.me()).data.id, login.data.id, 'A failed link must preserve an existing session');
+  });
+
+  await t.test('expired magic links show a useful error without signing in', async () => {
+    await app.inject().post('/api/auth/sign-in/magic-link').payload({ email: 'regular.user@test.com' });
+    const token = await mailToken(nodemailerMock.mock);
+    await app.prisma.verification.updateMany({ data: { expiresAt: new Date(0) } });
+    await assert.rejects(Api.auth.verifyMagicLink(token), { _form: 'This link is invalid or has expired. Please request a new one.' });
+    assert.equal((await Api.users.me()).status, 204);
+  });
+
+  await t.test('native browser magic-link callbacks retain their redirects', async () => {
+    const response = await app.inject({
+      url: '/api/auth/magic-link/verify?token=invalid&callbackURL=/&errorCallbackURL=/auth/magic-link',
+      headers: { accept: 'text/html' },
+    });
+    assert.equal(response.statusCode, 302);
+    assert.equal(response.headers.location, `${process.env.BASE_URL}/auth/magic-link?error=INVALID_TOKEN`);
+    const explicitCallback = await app.inject({
+      url: '/api/auth/magic-link/verify?token=invalid&callbackURL=/&errorCallbackURL=/auth/magic-link',
+      headers: { accept: 'application/json' },
+    });
+    assert.equal(explicitCallback.statusCode, 302);
   });
 });

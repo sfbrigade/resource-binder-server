@@ -127,7 +127,7 @@ even if the account tables are empty. Do not reset a database containing directo
 
    ```
    cd server
-   bin/create-admin First Last email@address.com
+   bin/create-admin.sh First Last email@address.com
    ```
 
    Substitute your name and email address. Better Auth's official CLI prompts for a password

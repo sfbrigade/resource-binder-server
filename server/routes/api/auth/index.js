@@ -9,7 +9,8 @@ export default async function (fastify) {
       const headers = fromNodeHeaders(request.headers);
       // Always overwrite this header with Fastify's trusted connection address.
       headers.set('x-auth-client-ip', request.ip);
-      const response = await auth.handler(new Request(new URL(request.url, auth.options.baseURL), {
+      const url = new URL(request.url, auth.options.baseURL);
+      const response = await auth.handler(new Request(url, {
         method: request.method,
         headers,
         ...(request.body ? { body: JSON.stringify(request.body) } : {}),
