@@ -159,6 +159,29 @@ test('passwordless registration', async (t) => {
     assert.equal((await post('/sign-in/email', { email: address, password: 'test' })).statusCode, 200);
   });
 
+  await t.test('failed session creation does not leave a partial passwordless account', async () => {
+    assert.equal((await requestLink()).statusCode, 200);
+    const token = await mailToken(mail);
+    const { adapter } = await app.auth.$context;
+    const transaction = adapter.transaction.bind(adapter);
+    const unavailable = t.mock.method(adapter, 'transaction', fn => transaction(async (tx) => {
+      const create = tx.create.bind(tx);
+      tx.create = input => input.model === 'session' ? null : create(input);
+      return fn(tx);
+    }));
+    try {
+      const response = await redeem(token);
+      assert.equal(response.statusCode, 400, response.body);
+      assert.equal(response.headers['set-cookie'], undefined);
+      assert.equal(response.headers['set-auth-token'], undefined);
+      assert.equal(await prisma.user.count({ where: { email } }), 0);
+      assert.equal(await prisma.session.count(), 0);
+    } finally {
+      unavailable.mock.restore();
+    }
+    assert.equal((await redeem(token)).statusCode, 200);
+  });
+
   await t.test('concurrent signup confirmation creates only one user and session', async () => {
     assert.equal((await requestLink()).statusCode, 200);
     const token = await mailToken(mail);

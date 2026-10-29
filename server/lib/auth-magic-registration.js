@@ -108,10 +108,11 @@ export function registrationMagicLink ({ sendMagicLink }) {
         try {
           result = await verify({ ...ctx, asResponse: false, returnHeaders: true });
         } catch (error) {
-          // A successful native browser callback redirects after setting the
-          // session. Return it through the transaction, then redirect on commit.
-          if (!isAPIError(error) || error.statusCode !== 302 || !ctx.context.newSession) throw error;
-          result = { redirect: error };
+          // Native login failures still consume their token. Commit those
+          // outcomes (including browser redirects) before returning the error.
+          // Failed new-account provisioning must roll back the account as well.
+          if (!isAPIError(error) || (ctx.context.magicRegistrationCreated && !ctx.context.newSession)) throw error;
+          result = { error };
         }
         if (registration?.inviteId && ctx.context.magicRegistrationCreated) {
           const adapter = await getCurrentAdapter(ctx.context.adapter);
@@ -128,7 +129,7 @@ export function registrationMagicLink ({ sendMagicLink }) {
       ctx.context.newSession = null;
       throw error;
     }
-    if (outcome.redirect) throw outcome.redirect;
+    if (outcome.error) throw outcome.error;
     outcome.headers.forEach((value, key) => ctx.responseHeaders.append(key, value));
     return ctx.json(outcome.response);
   });
