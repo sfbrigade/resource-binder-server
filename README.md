@@ -41,10 +41,22 @@ are redeemed when the new password is submitted. Native apps must handle the ori
 links and exchange their tokens with the API, and own their screens and secure session persistence.
 The email-link domain must host iOS/Android association files; these can be served
 by this backend or its hosting layer once the app identifiers are known. Those
-association files and mobile handlers are separate work. Magic links only sign in
-existing accounts. The web login page can request a magic link using only an email
-address; password login remains available on the same page. Email-change endpoints
-are disabled.
+association files and mobile handlers are separate work. The web login page offers
+email-link login and password login. Registration and invitation acceptance offer
+email-link signup (the default) or password signup. Passwordless accounts have no
+credential account until a password is added through the email password-reset flow;
+**My Account → Sign-in options → Set or reset your password** opens that flow.
+Email-change endpoints are disabled.
+
+Passwordless signup uses Better Auth's `/api/auth/sign-in/magic-link` endpoint with
+`email` and `metadata.registration: { firstName, lastName, inviteId? }`. The server
+validates and stores those profile fields with the hashed, expiring verification
+record. Confirmation creates a verified user and session through Better Auth, and
+accepts any invitation in the same transaction. Public registration settings and
+invitation availability are checked both when requesting and confirming the link.
+Plain login requests without registration metadata still only send mail to existing
+accounts and cannot create new accounts. Registration links for existing accounts
+sign them in without replacing their profile or credentials.
 
 Forward `/api/...` requests unchanged to the backend; the proxy must not add or
 strip `/api`. API callers whose base URL already ends in `/api` append `/auth/...`.

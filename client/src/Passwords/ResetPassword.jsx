@@ -31,12 +31,12 @@ function ResetPassword () {
   return (
     <>
       <Head>
-        <title>Reset your password</title>
+        <title>Set your password</title>
         <meta name='referrer' content='no-referrer' />
       </Head>
       <Container>
-        <Title mb='md'>Reset your password</Title>
-        <form onSubmit={form.onSubmit(onSubmitMutation.mutateAsync)}>
+        <Title mb='md'>Set your password</Title>
+        <form onSubmit={form.onSubmit(onSubmitMutation.mutate)}>
           <Fieldset disabled={onSubmitMutation.isPending} variant='unstyled'>
             <Stack w={{ base: '100%', xs: 320 }}>
               {!token && (
@@ -59,10 +59,11 @@ function ResetPassword () {
                     key='password'
                     label='New password'
                     type='password'
+                    autoComplete='new-password'
                   />
                   <Group>
-                    <Button type='submit'>
-                      Submit
+                    <Button type='submit' loading={onSubmitMutation.isPending}>
+                      Save password
                     </Button>
                   </Group>
                 </>

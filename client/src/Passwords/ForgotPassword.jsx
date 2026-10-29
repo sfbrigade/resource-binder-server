@@ -1,4 +1,4 @@
-import { useNavigate, Link } from 'react-router';
+import { Link } from 'react-router';
 import { Alert, Box, Button, Container, Fieldset, Group, Stack, TextInput, Title } from '@mantine/core';
 import { isEmail, useForm } from '@mantine/form';
 import { useMutation } from '@tanstack/react-query';
@@ -7,8 +7,6 @@ import { Head } from '@unhead/react';
 import Api from '../Api';
 
 function ForgotPassword () {
-  const navigate = useNavigate();
-
   const form = useForm({
     initialValues: {
       email: '',
@@ -20,7 +18,6 @@ function ForgotPassword () {
 
   const onSubmitMutation = useMutation({
     mutationFn: (values) => Api.passwords.reset(values.email),
-    onSuccess: () => navigate('/login', { state: { flash: 'If an account exists for that email, you will receive a password reset link shortly.' } }),
     onError: (errors) => form.setErrors(errors),
     onSettled: () => window.scrollTo({ top: 0, behavior: 'smooth' }),
   });
@@ -28,23 +25,25 @@ function ForgotPassword () {
   return (
     <>
       <Head>
-        <title>Forgot your password?</title>
+        <title>Set or reset your password</title>
       </Head>
       <Container>
-        <Title mb='md'>Forgot your password?</Title>
-        <form onSubmit={form.onSubmit(onSubmitMutation.mutateAsync)}>
+        <Title mb='md'>Set or reset your password</Title>
+        <form onSubmit={form.onSubmit(onSubmitMutation.mutate)}>
           <Fieldset disabled={onSubmitMutation.isPending} variant='unstyled'>
             <Stack w={{ base: '100%', xs: 320 }}>
               {form.errors._form && <Alert color='red'>{form.errors._form}</Alert>}
-              <Box>Enter the email address you registered to receive a reset password link.</Box>
+              {onSubmitMutation.isSuccess && <Alert>If an account exists for that email, a link to set or reset your password will arrive shortly. Check your inbox.</Alert>}
+              <Box>Enter your account email. We&apos;ll send a link to add a password or replace your existing one.</Box>
               <TextInput
                 {...form.getInputProps('email')}
                 key='email'
                 label='Email'
                 type='email'
+                autoComplete='email'
               />
               <Group>
-                <Button type='submit'>Submit</Button>
+                <Button type='submit' loading={onSubmitMutation.isPending}>Email me a password link</Button>
               </Group>
               <Box>
                 <Link to='/login'>Back to login...</Link>

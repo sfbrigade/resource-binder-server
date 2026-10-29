@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router';
-import { Alert, Button, Container, Fieldset, Group, Stack, TextInput, Title } from '@mantine/core';
+import { Alert, Button, Container, Fieldset, Group, Stack, Text, TextInput, Title } from '@mantine/core';
 import { hasLength, useForm } from '@mantine/form';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Head } from '@unhead/react';
@@ -101,13 +101,20 @@ function UserEditor ({ userId }) {
                     label='Last name'
                   />
                   <TextInput value={response.data.email} label='Email' type='email' readOnly />
-                  {editingSelf && <Link to='/passwords/forgot'>Reset your password</Link>}
                   <Group>
                     <Button type='submit'>Save profile</Button>
                   </Group>
                 </Stack>
               </Fieldset>
             </form>
+            {editingSelf && (
+              <Fieldset legend='Sign-in options'>
+                <Stack>
+                  <Text size='sm'>You can log in with an email link without a password. Add a password if you also want to use password login.</Text>
+                  <Link to='/passwords/forgot'>Set or reset your password</Link>
+                </Stack>
+              </Fieldset>
+            )}
             {authContext.user.isAdmin && <UserRoleForm user={response.data} />}
           </Stack>
         )}
