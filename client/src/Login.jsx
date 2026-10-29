@@ -1,6 +1,6 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, Link, useLocation, useSearchParams } from 'react-router';
-import { Alert, Box, Button, Container, Fieldset, Group, Stack, TextInput, Title } from '@mantine/core';
+import { Alert, Box, Button, Container, Fieldset, Radio, Stack, TextInput, Title } from '@mantine/core';
 import { hasLength, isEmail, useForm } from '@mantine/form';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Head } from '@unhead/react';
@@ -16,6 +16,7 @@ function Login () {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [loginMethod, setLoginMethod] = useState('magic-link');
 
   const from = location.state?.from || searchParams.get('from') || '/';
   const flash = location.state?.flash || (searchParams.get('passwordReset') === 'success' ? 'Your new password has been saved.' : null);
@@ -34,7 +35,9 @@ function Login () {
     },
     validate: {
       email: isEmail('Please enter a valid email address.'),
-      password: hasLength({ min: 8 }, 'Passwords must be at least 8 characters.'),
+      password: (value) => loginMethod === 'password'
+        ? hasLength({ min: 8 }, 'Passwords must be at least 8 characters.')(value)
+        : null,
     },
   });
 
@@ -54,10 +57,20 @@ function Login () {
     mutationFn: (email) => Api.auth.sendMagicLink(email),
   });
 
-  function onRequestMagicLink () {
-    if (!form.validateField('email').hasError) {
-      magicLinkMutation.mutate(form.getValues().email);
+  function onSubmit (values) {
+    if (loginMethod === 'password') {
+      onSubmitMutation.mutate(values);
+    } else {
+      magicLinkMutation.mutate(values.email);
     }
+  }
+
+  function onLoginMethodChange (value) {
+    setLoginMethod(value);
+    form.clearErrors();
+    onSubmitMutation.reset();
+    verificationMutation.reset();
+    magicLinkMutation.reset();
   }
 
   return (
@@ -67,8 +80,8 @@ function Login () {
       </Head>
       <Container>
         <Title mb='md'>Log in</Title>
-        <form onSubmit={form.onSubmit(onSubmitMutation.mutateAsync)}>
-          <Fieldset disabled={onSubmitMutation.isPending || magicLinkMutation.isPending} variant='unstyled'>
+        <form onSubmit={form.onSubmit(onSubmit)}>
+          <Fieldset disabled={onSubmitMutation.isPending || magicLinkMutation.isPending || verificationMutation.isPending} variant='unstyled'>
             <Stack w={{ base: '100%', xs: 320 }}>
               {flash && <Alert>{flash}</Alert>}
               {form.errors._form && <Alert color='red'>{form.errors._form}</Alert>}
@@ -85,20 +98,23 @@ function Login () {
                 type='email'
                 autoComplete='email'
               />
-              <TextInput
-                {...form.getInputProps('password')}
-                key={form.key('password')}
-                label='Password'
-                type='password'
-                autoComplete='current-password'
-              />
-              <Group>
-                <Button type='submit'>
-                  Log in
-                </Button>
-              </Group>
-              <Button type='button' variant='light' loading={magicLinkMutation.isPending} onClick={onRequestMagicLink}>
-                Email me a login link
+              <Radio.Group label='Login method' value={loginMethod} onChange={onLoginMethodChange}>
+                <Stack mt='xs'>
+                  <Radio value='magic-link' label='Email me a login link' />
+                  <Radio value='password' label='Log in with password' />
+                  {loginMethod === 'password' && (
+                    <TextInput
+                      {...form.getInputProps('password')}
+                      key={form.key('password')}
+                      label='Password'
+                      type='password'
+                      autoComplete='current-password'
+                    />
+                  )}
+                </Stack>
+              </Radio.Group>
+              <Button type='submit' loading={onSubmitMutation.isPending || magicLinkMutation.isPending}>
+                {loginMethod === 'password' ? 'Log in with password' : 'Email me a login link'}
               </Button>
               {magicLinkMutation.error && <Alert color='red'>{magicLinkMutation.error._form}</Alert>}
               {magicLinkMutation.isSuccess && <Alert>If this email belongs to an eligible account, a login link will arrive shortly. Check your inbox.</Alert>}
