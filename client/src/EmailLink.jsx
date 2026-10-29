@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Head } from '@unhead/react';
 
 import Api from './Api';
+import { loginDestination } from './LoginDestination';
 
 export default function EmailLink ({ action }) {
   const [searchParams] = useSearchParams();
@@ -20,7 +21,7 @@ export default function EmailLink ({ action }) {
         navigate('/login', { replace: true, state: { flash: 'Your email has been verified. You can now log in.' } });
       } else {
         queryClient.setQueryData(['users', 'me'], response.data);
-        navigate('/', { replace: true });
+        navigate(loginDestination(searchParams.get('from')), { replace: true });
       }
     },
   });

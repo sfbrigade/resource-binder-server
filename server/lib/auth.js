@@ -44,9 +44,19 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
   if (process.env.NODE_ENV === 'production' && [baseURL, linkOrigin].some(url => new URL(url).protocol !== 'https:')) {
     throw new Error('Authentication origins must use HTTPS in production.');
   }
-  const appLink = (action, token) => {
+  const appLink = (action, token, callbackURL) => {
     const url = new URL(`/api/auth/links/${action}`, linkOrigin);
     url.searchParams.set('token', token);
+    if (action === 'magic-link' && callbackURL) {
+      try {
+        const destination = new URL(callbackURL, baseURL);
+        if (destination.origin === new URL(baseURL).origin) {
+          url.searchParams.set('from', `${destination.pathname}${destination.search}${destination.hash}`);
+        }
+      } catch {
+        // An invalid destination must not prevent delivery of the login link.
+      }
+    }
     return url.toString();
   };
   async function sendEmail (user, template, url, request) {
@@ -178,7 +188,7 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
         const user = await prisma.user.findUnique({ where: { email } }) || ctx.context.magicRegistration;
         if (!user) return;
         try {
-          await sendEmail(user, 'magic-link', appLink('magic-link', token), ctx.request);
+          await sendEmail(user, 'magic-link', appLink('magic-link', token, ctx.body.callbackURL), ctx.request);
         } catch {
           ctx.context.logger.warn('Magic-link email delivery failed.');
         }

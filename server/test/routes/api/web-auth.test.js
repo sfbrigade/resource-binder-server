@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import axios from 'axios';
-import { build, mailToken, nodemailerMock, password } from '#test/helper.js';
+import { build, mailToken, nodemailerMock, password, waitForMail } from '#test/helper.js';
 
 test('web client authentication through the application routes', async (t) => {
   const app = await build(t);
@@ -33,6 +33,20 @@ test('web client authentication through the application routes', async (t) => {
     axios.defaults.adapter = previousAdapter;
   }
   t.beforeEach(() => { cookie = ''; unavailableProfileId = undefined; });
+
+  await t.test('login emails retain the requested application destination and reject external destinations', async () => {
+    const callbackURL = '/account?tab=profile#password';
+    await Api.auth.sendMagicLink('regular.user@test.com', callbackURL);
+    await waitForMail();
+    const text = nodemailerMock.mock.getSentMail().at(-1).text;
+    const link = new URL(text.match(/http[^\s]+/)[0]);
+    assert.equal(link.pathname, '/api/auth/links/magic-link');
+    assert.equal(link.searchParams.get('from'), callbackURL);
+    const mailCount = nodemailerMock.mock.getSentMail().length;
+    await assert.rejects(Api.auth.sendMagicLink('regular.user@test.com', 'https://untrusted.example/account'), { _form: 'Invalid callbackURL' });
+    await waitForMail();
+    assert.equal(nodemailerMock.mock.getSentMail().length, mailCount);
+  });
 
   await t.test('the registration form can request an email link without submitting a password and receive an application profile', async () => {
     const email = 'passwordless.web@example.com';

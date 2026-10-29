@@ -42,7 +42,8 @@ links and exchange their tokens with the API, and own their screens and secure s
 The email-link domain must host iOS/Android association files; these can be served
 by this backend or its hosting layer once the app identifiers are known. Those
 association files and mobile handlers are separate work. The web login page offers
-email-link login and password login. Registration and invitation acceptance offer
+email-link login and password login; both return to the originally requested
+application page. Registration and invitation acceptance offer
 email-link signup (the default) or password signup. Passwordless accounts have no
 credential account until a password is added through the email password-reset flow;
 **My Account → Sign-in options → Set or reset your password** opens that flow.
@@ -55,8 +56,11 @@ record. Confirmation creates a verified user and session through Better Auth, an
 accepts any invitation in the same transaction. Public registration settings and
 invitation availability are checked both when requesting and confirming the link.
 Plain login requests without registration metadata still only send mail to existing
-accounts and cannot create new accounts. Registration links for existing accounts
-sign them in without replacing their profile or credentials.
+accounts and cannot create new accounts. Registration links for existing verified
+accounts sign them in without replacing their profile or credentials. For an
+existing unverified account, Better Auth proves email ownership by removing its
+unverified password and old sessions; the owner can add a password through email
+password reset.
 
 Forward `/api/...` requests unchanged to the backend; the proxy must not add or
 strip `/api`. API callers whose base URL already ends in `/api` append `/auth/...`.

@@ -8,6 +8,7 @@ import { Head } from '@unhead/react';
 import Api from './Api';
 import { useAuthContext } from './AuthContext';
 import { useStaticContext } from './StaticContext';
+import { loginDestination } from './LoginDestination';
 
 function Login () {
   const staticContext = useStaticContext();
@@ -18,7 +19,7 @@ function Login () {
   const queryClient = useQueryClient();
   const [loginMethod, setLoginMethod] = useState('magic-link');
 
-  const from = location.state?.from || searchParams.get('from') || '/';
+  const from = loginDestination(location.state?.from || searchParams.get('from'));
   const flash = location.state?.flash || (searchParams.get('passwordReset') === 'success' ? 'Your new password has been saved.' : null);
 
   useEffect(() => {
@@ -54,7 +55,7 @@ function Login () {
   });
 
   const magicLinkMutation = useMutation({
-    mutationFn: (email) => Api.auth.sendMagicLink(email),
+    mutationFn: (email) => Api.auth.sendMagicLink(email, from),
   });
 
   function onSubmit (values) {
