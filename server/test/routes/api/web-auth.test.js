@@ -34,6 +34,22 @@ test('web client authentication through the application routes', async (t) => {
   }
   t.beforeEach(() => { cookie = ''; unavailableProfileId = undefined; });
 
+  await t.test('the registration form can request an email link without submitting a password and receive an application profile', async () => {
+    const email = 'passwordless.web@example.com';
+    const response = await Api.auth.register({
+      registrationMethod: 'magic-link', firstName: 'Email', lastName: 'Member', email, password: '',
+    });
+    assert.equal(response.status, 200);
+    assert.equal(await app.prisma.user.count({ where: { email } }), 0);
+    const signedIn = await Api.auth.verifyMagicLink(await mailToken(nodemailerMock.mock));
+    assert.equal(signedIn.data.email, email);
+    assert.equal(signedIn.data.firstName, 'Email');
+    assert.equal(signedIn.data.emailVerified, true);
+    assert.equal(signedIn.data.isAdmin, false);
+    assert.equal(await app.prisma.account.count({ where: { userId: signedIn.data.id } }), 0);
+    assert.equal((await Api.users.me()).data.id, signedIn.data.id);
+  });
+
   await t.test('a confirmed role update succeeds even when profile reads are unavailable', async () => {
     await Api.auth.login('admin.user@test.com', 'test');
     unavailableProfileId = 'dab5dff3-360d-4dbb-98dd-1990dfb5c4c5';

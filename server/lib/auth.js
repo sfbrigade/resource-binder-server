@@ -2,10 +2,11 @@ import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { getCurrentAdapter } from '@better-auth/core/context';
 import { APIError, createAuthMiddleware, isAPIError } from 'better-auth/api';
-import { admin, bearer, magicLink } from 'better-auth/plugins';
+import { admin, bearer } from 'better-auth/plugins';
 import { defaultAc, userAc } from 'better-auth/plugins/admin/access';
 import User from '#models/user.js';
 import mailer from '#lib/mailer.js';
+import { magicRegistrationProfile, registrationMagicLink } from '#lib/auth-magic-registration.js';
 
 async function sendAuthEmail (email, template, locals) {
   if (process.env.SMTP_ENABLED !== 'true') {
@@ -66,8 +67,8 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
       ipAddress: { ipAddressHeaders: ['x-auth-client-ip'] },
     },
     user: {
-      validateUserInfo ({ user }) {
-        const result = User.RegisterSchema.omit({ inviteId: true }).safeParse(user);
+      validateUserInfo ({ user, source }, ctx) {
+        const result = User.RegisterSchema.omit({ inviteId: true }).safeParse(magicRegistrationProfile(user, source, ctx));
         if (!result.success) return { error: 'invalid_profile', errorDescription: result.error.issues[0].message };
       },
       additionalFields: {
@@ -172,11 +173,9 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
         },
       },
     },
-    plugins: [invitations, bearer(), magicLink({
-      disableSignUp: true,
-      storeToken: 'hashed',
+    plugins: [invitations, bearer(), registrationMagicLink({
       async sendMagicLink ({ email, token }, ctx) {
-        const user = await prisma.user.findUnique({ where: { email } });
+        const user = await prisma.user.findUnique({ where: { email } }) || ctx.context.magicRegistration;
         if (!user) return;
         try {
           await sendEmail(user, 'magic-link', appLink('magic-link', token), ctx.request);

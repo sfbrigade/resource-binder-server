@@ -11,7 +11,13 @@ function Register () {
 
   const onSubmitMutation = useMutation({
     mutationFn: (values) => Api.auth.register(values),
-    onSuccess: () => navigate('/login', { state: { flash: 'Please check your email to verify your account before logging in.' } }),
+    onSuccess: (_, values) => navigate('/login', {
+      state: {
+        flash: values.registrationMethod === 'magic-link'
+          ? 'Check your inbox for a link to complete registration and log in. If you already have an account, the link will log you in.'
+          : 'Please check your email to verify your account before logging in.',
+      }
+    }),
     onError: () => window.scrollTo(0, 0),
   });
 

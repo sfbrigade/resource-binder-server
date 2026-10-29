@@ -93,8 +93,15 @@ const Api = {
     logout () {
       return instance.post('/api/auth/sign-out', {}).catch(handleAuthError);
     },
-    register (data) {
-      return instance.post('/api/auth/sign-up/email', data).catch(handleAuthError);
+    register ({ registrationMethod = 'password', password, ...data }) {
+      if (registrationMethod === 'magic-link') {
+        const { email, firstName, lastName, inviteId } = data;
+        return instance.post('/api/auth/sign-in/magic-link', {
+          email,
+          metadata: { registration: { firstName, lastName, inviteId } },
+        }).catch(handleAuthError);
+      }
+      return instance.post('/api/auth/sign-up/email', { ...data, password }).catch(handleAuthError);
     },
     sendVerificationEmail (email) {
       return instance.post('/api/auth/send-verification-email', { email }).catch(handleAuthError);
