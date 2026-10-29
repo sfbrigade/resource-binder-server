@@ -11,91 +11,34 @@ This repository contains a "starter" project for web application development in 
 - Node.js
 - Postgres
 
-## Authentication setup and migration
+## Authentication setup
 
-Authentication uses [Better Auth](https://better-auth.com/) under `/api/auth`, with
-the Magic Link, Bearer, and Admin plugins. Refer to its documentation for standard APIs.
+Authentication uses [Better Auth](https://better-auth.com/) under `/api/auth`.
+Login and registration support email links or passwords; email-link signup is the default.
 
 Before starting the server, configure `server/.env` (copy `server/example.env` if needed):
 
 - `BETTER_AUTH_SECRET`: generate a private secret with `openssl rand -base64 32`.
-  The example placeholder deliberately fails startup. Never include this secret in a client app.
-- `BASE_URL`: the public API origin, such as `https://example.com`, without `/api`.
-  HTTPS is required in production. Route folders supply the `/api` prefix.
+  The example placeholder fails startup. Keep this secret on the server.
+- `BASE_URL`: the public application origin, without `/api`. Use HTTPS in production.
 - `AUTH_LINK_BASE_URL`: optional email-link origin, defaulting to `BASE_URL`.
-  A separate origin must also serve the `/api/auth/links/*` landing routes.
-- `TRUSTED_PROXIES`: comma-separated IP addresses or CIDRs of your reverse proxies.
-  Set this when deploying behind a proxy so authentication rate limits and session
-  IPs identify each client. Leave unset for direct connections. Only include proxies
-  you control that sanitize forwarded headers; do not trust every address.
-- `SMTP_ENABLED=true` and the existing mail settings are required for signup and
-  email delivery. Local development uses Mailcatcher.
-- `VITE_FEATURE_REGISTRATION`: when not `true`, signup requires a matching, unused
-  invitation. Signup also requires `firstName` and `lastName`.
+  A separate origin must also serve `/api/auth/links/*`.
+- `TRUSTED_PROXIES`: the IP addresses or CIDRs of trusted reverse proxies.
+  Leave unset for direct connections; see the [deployment notes](docs/dokku.md).
+- `SMTP_ENABLED=true` and the mail settings are required for signup and email delivery.
+  Local development uses MailCatcher.
+- `VITE_FEATURE_REGISTRATION`: when not `true`, signup requires a matching, unused invitation.
 
-Email links open `/api/auth/links/*` instruction pages without consuming tokens. Browsers
-offer a **Continue in browser** link to the web app at `BASE_URL`, where users can
-verify email, reset passwords, accept invitations, or confirm magic-link login.
-Verification and magic-link tokens are redeemed only after confirmation; reset tokens
-are redeemed when the new password is submitted. Native apps must handle the original
-links and exchange their tokens with the API, and own their screens and secure session persistence.
-The email-link domain must host iOS/Android association files; these can be served
-by this backend or its hosting layer once the app identifiers are known. Those
-association files and mobile handlers are separate work. The web login page offers
-email-link login and password login; both return to the originally requested
-application page. Registration and invitation acceptance offer
-email-link signup (the default) or password signup. Passwordless accounts have no
-credential account until a password is added through the email password-reset flow;
-**My Account → Sign-in options → Set or reset your password** opens that flow.
-Email-change endpoints are disabled.
+Create the first administrator using the script in [One-time Setup](#one-time-setup).
+Existing administrators can invite users and promote verified accounts through
+**Admin → Users → Edit Profile → Administrator access**.
 
-Passwordless signup uses Better Auth's `/api/auth/sign-in/magic-link` endpoint with
-`email` and `metadata.registration: { firstName, lastName, inviteId? }`. The server
-validates and stores those profile fields with the hashed, expiring verification
-record. Confirmation creates a verified user and session through Better Auth, and
-accepts any invitation in the same transaction. Public registration settings and
-invitation availability are checked both when requesting and confirming the link.
-Plain login requests without registration metadata still only send mail to existing
-accounts and cannot create new accounts. Registration links for existing verified
-accounts sign them in without replacing their profile or credentials. For an
-existing unverified account, Better Auth proves email ownership by removing its
-unverified password and old sessions; the owner can add a password through email
-password reset.
+Server startup applies migrations without resetting the database. If upgrading from
+earlier authentication migrations, read the [migration notes](docs/authentication.md#migration-notes)
+first and reconcile the migration history. Do not reset a database containing directory data.
 
-Forward `/api/...` requests unchanged to the backend; the proxy must not add or
-strip `/api`. API callers whose base URL already ends in `/api` append `/auth/...`.
-Mobile email-link handlers must recognize `/api/auth/links/...`. Previously sent
-`/auth/...` links require fresh emails; no legacy landing routes are retained.
-
-Reset links are single-use and expire after 30 minutes. Password changes leave
-other unused reset links valid until expiry, following Better Auth's token lifecycle.
-Password resets revoke sessions through the built-in option; admin password changes
-also force logout through Better Auth's native session-revocation API.
-
-The cutover removes legacy password/reset fields and sessions are not imported.
-Existing development users must verify their email and reset their password. This
-is not a production password migration or a reversible rollback. The React client
-uses Better Auth's native endpoints and browser session cookies; after login it
-loads `/api/users/me` for the application profile and admin permissions. New registrations
-stay signed out until email verification, and the login form offers verification resends.
-
-To add subsequent administrators, an existing admin can invite a user, wait for email
-verification, then open **Admin → Users → Edit Profile** and save **Administrator access**.
-Role changes use Better Auth's `/api/auth/admin/set-role` endpoint separately from profile
-updates. The server rejects promotion of unverified accounts, and role changes apply to
-existing sessions immediately. The admin interface displays verification status and
-refreshes user information after a role change. Administrators cannot remove their own
-admin access; another administrator must make that change. Confirmed role updates remain
-successful if a background profile refresh fails, and role saves preserve unsaved profile
-photos. HTTP account creation remains unavailable to admins; use the bootstrap CLI for
-the first admin. Profile editing supports names and picture updates; email is read-only
-and password recovery uses the dedicated reset flow.
-
-Server startup applies the checked-in migrations; it never resets the database.
-The Better Auth changes are consolidated in `20260909000100_better_auth_magic_links`.
-Databases that already applied the former foundation, cutover, or deactivation
-migrations need their migration history reconciled before using this sequence,
-even if the account tables are empty. Do not reset a database containing directory data.
+See the [authentication reference](docs/authentication.md) for API behavior, email links,
+password setup, administrator permissions, and migration details.
 
 ## One-time Setup
 
@@ -150,8 +93,8 @@ even if the account tables are empty. Do not reset a database containing directo
 
    Substitute your name and email address. Better Auth's official CLI prompts for a password
    and creates the initial administrator as verified, so no verification email is needed.
-   Use a long, unique password. The CLI version is pinned independently of the server's
-   Better Auth version; see the [CLI documentation](https://better-auth.com/docs/concepts/cli#create-admin).
+   Use a long, unique password. See the [authentication reference](docs/authentication.md#administrator-access)
+   for administrator permissions and CLI details.
 
 7. To stop the server, press CONTROL-C in the window with the running server.
    If it is successful, you will see something like this:
