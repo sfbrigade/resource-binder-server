@@ -102,6 +102,9 @@ const Api = {
     verifyEmail (token) {
       return instance.get('/api/auth/verify-email', { params: { token } }).catch(handleAuthError);
     },
+    sendMagicLink (email) {
+      return instance.post('/api/auth/sign-in/magic-link', { email }).catch(handleAuthError);
+    },
     async verifyMagicLink (token) {
       await instance.get('/api/auth/magic-link/verify', { params: { token } }).catch(handleAuthError);
       return Api.users.me();

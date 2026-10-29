@@ -42,7 +42,9 @@ links and exchange their tokens with the API, and own their screens and secure s
 The email-link domain must host iOS/Android association files; these can be served
 by this backend or its hosting layer once the app identifiers are known. Those
 association files and mobile handlers are separate work. Magic links only sign in
-existing accounts. Email-change endpoints are disabled.
+existing accounts. The web login page can request a magic link using only an email
+address; password login remains available on the same page. Email-change endpoints
+are disabled.
 
 Forward `/api/...` requests unchanged to the backend; the proxy must not add or
 strip `/api`. API callers whose base URL already ends in `/api` append `/auth/...`.

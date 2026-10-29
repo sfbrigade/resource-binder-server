@@ -50,6 +50,16 @@ function Login () {
     onError: (errors) => form.setErrors(errors),
   });
 
+  const magicLinkMutation = useMutation({
+    mutationFn: (email) => Api.auth.sendMagicLink(email),
+  });
+
+  function onRequestMagicLink () {
+    if (!form.validateField('email').hasError) {
+      magicLinkMutation.mutate(form.getValues().email);
+    }
+  }
+
   return (
     <>
       <Head>
@@ -58,7 +68,7 @@ function Login () {
       <Container>
         <Title mb='md'>Log in</Title>
         <form onSubmit={form.onSubmit(onSubmitMutation.mutateAsync)}>
-          <Fieldset disabled={onSubmitMutation.isPending} variant='unstyled'>
+          <Fieldset disabled={onSubmitMutation.isPending || magicLinkMutation.isPending} variant='unstyled'>
             <Stack w={{ base: '100%', xs: 320 }}>
               {flash && <Alert>{flash}</Alert>}
               {form.errors._form && <Alert color='red'>{form.errors._form}</Alert>}
@@ -72,18 +82,26 @@ function Login () {
                 {...form.getInputProps('email')}
                 key={form.key('email')}
                 label='Email'
+                type='email'
+                autoComplete='email'
               />
               <TextInput
                 {...form.getInputProps('password')}
                 key={form.key('password')}
                 label='Password'
                 type='password'
+                autoComplete='current-password'
               />
               <Group>
                 <Button type='submit'>
-                  Submit
+                  Log in
                 </Button>
               </Group>
+              <Button type='button' variant='light' loading={magicLinkMutation.isPending} onClick={onRequestMagicLink}>
+                Email me a login link
+              </Button>
+              {magicLinkMutation.error && <Alert color='red'>{magicLinkMutation.error._form}</Alert>}
+              {magicLinkMutation.isSuccess && <Alert>If this email belongs to an eligible account, a login link will arrive shortly. Check your inbox.</Alert>}
               <Box>
                 <Link to='/passwords/forgot'>Forgot your password?</Link>
                 {staticContext?.env?.VITE_FEATURE_REGISTRATION === 'true' && (

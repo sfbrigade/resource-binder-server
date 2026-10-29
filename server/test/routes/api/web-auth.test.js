@@ -192,6 +192,7 @@ test('web client authentication through the application routes', async (t) => {
       await assert.rejects(Api.auth.login('unknown@example.com', password), { _form: 'Invalid email and/or password.' });
       await assert.rejects(Api.auth.verifyEmail('invalid'), { _form: 'This link is invalid or has expired. Please request a new one.' });
       await assert.rejects(Api.auth.verifyMagicLink('invalid'), { _form: 'This link is invalid or has expired. Please request a new one.' });
+      await assert.rejects(Api.auth.sendMagicLink('invalid'), error => typeof error._form === 'string');
       await assert.rejects(Api.passwords.update('invalid', password), { _form: 'This link is invalid or has expired. Please request a new one.' });
       assert.equal(globalThis.window.location, '/login?from=/admin');
     } finally {
@@ -201,7 +202,9 @@ test('web client authentication through the application routes', async (t) => {
   });
 
   await t.test('a magic email link establishes the browser session', async () => {
-    await app.inject().post('/api/auth/sign-in/magic-link').payload({ email: 'regular.user@test.com' });
+    const requested = await Api.auth.sendMagicLink('regular.user@test.com');
+    assert.equal(requested.status, 200);
+    assert.equal((await Api.users.me()).status, 204, 'Requesting a link must not sign the browser in');
     const token = await mailToken(nodemailerMock.mock);
     const login = await Api.auth.verifyMagicLink(token);
     assert.equal(login.data.email, 'regular.user@test.com');
@@ -211,11 +214,27 @@ test('web client authentication through the application routes', async (t) => {
   });
 
   await t.test('expired magic links show a useful error without signing in', async () => {
-    await app.inject().post('/api/auth/sign-in/magic-link').payload({ email: 'regular.user@test.com' });
+    await Api.auth.sendMagicLink('regular.user@test.com');
     const token = await mailToken(nodemailerMock.mock);
     await app.prisma.verification.updateMany({ data: { expiresAt: new Date(0) } });
     await assert.rejects(Api.auth.verifyMagicLink(token), { _form: 'This link is invalid or has expired. Please request a new one.' });
     assert.equal((await Api.users.me()).status, 204);
+  });
+
+  await t.test('magic-link requests keep account eligibility private', async () => {
+    const known = await Api.auth.sendMagicLink('regular.user@test.com');
+    await mailToken(nodemailerMock.mock);
+    const sentCount = nodemailerMock.mock.getSentMail().length;
+    const unknown = await Api.auth.sendMagicLink('unknown@example.com');
+    assert.equal(unknown.status, known.status);
+    assert.deepEqual(unknown.data, known.data);
+    assert.equal(nodemailerMock.mock.getSentMail().length, sentCount);
+    assert.equal(await app.prisma.user.count({ where: { email: 'unknown@example.com' } }), 0);
+  });
+
+  await t.test('magic-link request rate limits produce a useful form error', async () => {
+    for (let attempt = 0; attempt < 5; attempt++) await Api.auth.sendMagicLink('unknown@example.com');
+    await assert.rejects(Api.auth.sendMagicLink('unknown@example.com'), { _form: 'Too many attempts. Please try again in a few minutes.' });
   });
 
   await t.test('native browser magic-link callbacks retain their redirects', async () => {
