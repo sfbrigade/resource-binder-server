@@ -1,4 +1,4 @@
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, useState } from 'react';
 import { Routes, Route } from 'react-router';
 import '@mantine/core/styles.css';
 import { AppShell, Container, Loader, MantineProvider } from '@mantine/core';
@@ -14,6 +14,7 @@ import { useStaticContext } from './StaticContext';
 import AppRedirects from './AppRedirects';
 import AppTheme from './AppTheme';
 import Header from './Header';
+import NavigationLinks from './NavigationLinks';
 import Home from './Home';
 import Login from './Login';
 import EmailLink from './EmailLink';
@@ -24,9 +25,8 @@ import UsersRoutes from './Users/UsersRoutes';
 
 const AdminRoutes = lazy(() => import('./Admin/AdminRoutes'));
 
-const queryClient = new QueryClient();
-
 function App () {
+  const [queryClient] = useState(() => new QueryClient());
   const [opened, { close, toggle }] = useDisclosure();
   const staticContext = useStaticContext();
   useHead({
@@ -46,7 +46,9 @@ function App () {
               <AppShell.Header>
                 <Header opened={opened} close={close} toggle={toggle} />
               </AppShell.Header>
-              <AppShell.Navbar />
+              <AppShell.Navbar aria-label='Mobile navigation' aria-hidden={!opened} hiddenFrom='sm'>
+                {opened && <NavigationLinks close={close} mobile />}
+              </AppShell.Navbar>
               <AppShell.Main px={0}>
                 <Routes>
                   <Route

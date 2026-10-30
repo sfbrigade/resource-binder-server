@@ -7,6 +7,85 @@ test('Better Auth administration', async (t) => {
   const { prisma } = app;
   const mail = nodemailerMock.mock;
 
+  await t.test('administrators cannot remove their own admin access, including the sole administrator', async () => {
+    const admin = await verifiedAdmin(app);
+    assert.equal(await prisma.user.count({ where: { role: 'admin' } }), 1);
+    for (const userId of [admin.user.id, admin.user.id.toUpperCase(), `{${admin.user.id}}`, admin.user.id.replaceAll('-', '')]) {
+      for (const role of ['user', ['user'], []]) {
+        const response = await app.inject().post('/api/auth/admin/set-role')
+          .headers({ origin: process.env.BASE_URL, ...admin.headers })
+          .payload({ userId, role });
+        assert.equal(response.statusCode, 400, `${userId}: ${response.body}`);
+        assert.equal(response.json().code, 'SELF_DEMOTION_NOT_ALLOWED');
+      }
+    }
+    assert.equal((await prisma.user.findUnique({ where: { id: admin.user.id } })).role, 'admin');
+    assert.equal((await app.inject({ url: '/api/users', headers: admin.headers })).statusCode, 200);
+  });
+
+  await t.test('promotions and demotions immediately change access for existing sessions', async () => {
+    const admin = await verifiedAdmin(app);
+    const member = await verifiedUser(app);
+    assert.equal((await app.inject({ url: '/api/users', headers: member.headers })).statusCode, 403);
+    for (const [role, expectedStatus] of [['admin', 200], ['user', 403]]) {
+      const response = await app.inject().post('/api/auth/admin/set-role')
+        .headers({ origin: process.env.BASE_URL, ...admin.headers })
+        .payload({ userId: member.user.id, role });
+      assert.equal(response.statusCode, 200, response.body);
+      assert.equal((await prisma.user.findUnique({ where: { id: member.user.id } })).role, role);
+      assert.equal((await app.inject({ url: '/api/users', headers: member.headers })).statusCode, expectedStatus);
+    }
+  });
+
+  await t.test('unverified accounts cannot receive an admin role through any supported role shape', async () => {
+    const admin = await verifiedAdmin(app);
+    const signup = await app.inject().post('/api/auth/sign-up/email')
+      .headers({ origin: process.env.BASE_URL })
+      .payload({ firstName: 'Pending', lastName: 'User', email: 'pending@example.com', password });
+    assert.equal(signup.statusCode, 200, signup.body);
+    const userId = signup.json().user.id;
+    for (const role of ['admin', ['admin'], ['user', 'admin']]) {
+      const response = await app.inject().post('/api/auth/admin/set-role')
+        .headers({ origin: process.env.BASE_URL, ...admin.headers }).payload({ userId, role });
+      assert.equal(response.statusCode, 400, response.body);
+      assert.equal(response.json().code, 'TARGET_EMAIL_NOT_VERIFIED');
+      assert.equal((await prisma.user.findUnique({ where: { id: userId } })).role, 'user');
+    }
+    const token = await mailToken(mail);
+    assert.equal((await app.inject(`/api/auth/verify-email?token=${encodeURIComponent(token)}`)).statusCode, 200);
+    assert.equal((await app.inject().post('/api/auth/admin/set-role')
+      .headers({ origin: process.env.BASE_URL, ...admin.headers }).payload({ userId, role: 'admin' })).statusCode, 200);
+  });
+
+  await t.test('unauthorized callers cannot change roles or discover verification status', async () => {
+    const member = await verifiedUser(app);
+    const pending = await app.auth.api.createUser({
+      body: { name: 'Pending User', email: 'pending@example.com', data: { firstName: 'Pending', lastName: 'User' } },
+    });
+    for (const userId of [member.user.id, pending.user.id, '11111111-1111-4111-8111-111111111111']) {
+      for (const [headers, status] of [[{}, 401], [member.headers, 403]]) {
+        const response = await app.inject().post('/api/auth/admin/set-role')
+          .headers({ origin: process.env.BASE_URL, ...headers }).payload({ userId, role: 'admin' });
+        assert.equal(response.statusCode, status, response.body);
+      }
+    }
+    assert.equal((await prisma.user.findUnique({ where: { id: pending.user.id } })).role, 'user');
+  });
+
+  await t.test('HTTP admin creation remains forbidden while trusted bootstrap calls still work', async () => {
+    const admin = await verifiedAdmin(app);
+    const body = { name: 'New Admin', email: 'new.admin@example.com', password, role: 'admin', data: { firstName: 'New', lastName: 'Admin', emailVerified: true } };
+    for (const [headers, status] of [[{}, 401], [admin.headers, 403]]) {
+      const response = await app.inject().post('/api/auth/admin/create-user')
+        .headers({ origin: process.env.BASE_URL, ...headers }).payload(body);
+      assert.equal(response.statusCode, status, response.body);
+    }
+    assert.equal(await prisma.user.count({ where: { email: body.email } }), 0);
+    const created = await app.auth.api.createUser({ body });
+    assert.equal(created.user.role, 'admin');
+    assert.equal(created.user.emailVerified, true);
+  });
+
   await t.test('native password limits reject oversized input before hashing or verification', async (t) => {
     const member = await verifiedUser(app);
     const { password: passwords } = await app.auth.$context;

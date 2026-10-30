@@ -12,8 +12,8 @@ test('Better Auth magic links and native sessions', async (t) => {
   const post = (path, payload, headers = {}) => app.inject().post(`/api/auth${path}`)
     .headers({ origin: process.env.BASE_URL, ...headers }).payload(payload);
 
-  async function requestLink (email) {
-    const response = await post('/sign-in/magic-link', { email });
+  async function requestLink (email, registration) {
+    const response = await post('/sign-in/magic-link', { email, ...(registration ? { metadata: { registration } } : {}) });
     assert.equal(response.statusCode, 200, response.body);
     return mailToken(mail);
   }
@@ -101,19 +101,29 @@ test('Better Auth magic links and native sessions', async (t) => {
     assert.equal((await post('/sign-in/email', { email: user.email, password: `${password}New` })).statusCode, 200);
   });
 
-  await t.test('active bans prevent redemption of both outstanding and newly delivered links', async () => {
-    const admin = await verifiedAdmin(app);
-    const { user } = await verifiedUser(app);
-    const outstanding = await requestLink(user.email);
-    assert.equal((await post('/admin/ban-user', { userId: user.id }, admin.headers)).statusCode, 200);
-    const fresh = await requestLink(user.email);
-    for (const token of [outstanding, fresh]) {
-      const response = await app.inject(`/api/auth/magic-link/verify?token=${token}`);
-      assert.equal(response.statusCode, 403, response.body);
-      assert.equal(response.headers['set-auth-token'], undefined);
-    }
-    assert.equal(await prisma.session.count({ where: { userId: user.id } }), 0);
-  });
+  for (const registration of [undefined, { firstName: 'Test', lastName: 'Person' }]) {
+    await t.test(`failed ${registration ? 'registration' : 'login'} links stay consumed after an account is unbanned`, async () => {
+      const admin = await verifiedAdmin(app);
+      const { user } = await verifiedUser(app);
+      const outstanding = await requestLink(user.email, registration);
+      assert.equal((await post('/admin/ban-user', { userId: user.id }, admin.headers)).statusCode, 200);
+      const fresh = await requestLink(user.email, registration);
+      for (const token of [outstanding, fresh]) {
+        const response = await app.inject(`/api/auth/magic-link/verify?token=${token}`);
+        assert.equal(response.statusCode, 403, response.body);
+        assert.equal(response.headers['set-auth-token'], undefined);
+      }
+      assert.equal(await prisma.session.count({ where: { userId: user.id } }), 0);
+      assert.equal((await post('/admin/unban-user', { userId: user.id }, admin.headers)).statusCode, 200);
+      for (const token of [outstanding, fresh]) {
+        const response = await app.inject(`/api/auth/magic-link/verify?token=${token}`);
+        assert.notEqual(response.statusCode, 200, 'A failed verification must still consume its token');
+        assert.equal(response.headers['set-cookie'], undefined);
+        assert.equal(response.headers['set-auth-token'], undefined);
+      }
+      assert.equal(await prisma.session.count({ where: { userId: user.id } }), 0);
+    });
+  }
 
   await t.test('magic sign-in clears expired temporary bans without a password sign-in', async () => {
     const admin = await verifiedAdmin(app);

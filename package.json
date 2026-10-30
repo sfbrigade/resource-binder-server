@@ -12,6 +12,8 @@
     "test": "npm test --workspaces"
   },
   "devDependencies": {
-    "foreman": "^3.0.1"
+    "foreman": "^3.0.1",
+    "jsdom": "^26.1.0",
+    "vitest": "^5.0.5"
   }
 }

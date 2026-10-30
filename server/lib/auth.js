@@ -2,10 +2,11 @@ import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { getCurrentAdapter } from '@better-auth/core/context';
 import { APIError, createAuthMiddleware, isAPIError } from 'better-auth/api';
-import { admin, bearer, magicLink } from 'better-auth/plugins';
+import { admin, bearer } from 'better-auth/plugins';
 import { defaultAc, userAc } from 'better-auth/plugins/admin/access';
 import User from '#models/user.js';
 import mailer from '#lib/mailer.js';
+import { magicRegistrationProfile, registrationMagicLink } from '#lib/auth-magic-registration.js';
 
 async function sendAuthEmail (email, template, locals) {
   if (process.env.SMTP_ENABLED !== 'true') {
@@ -43,10 +44,28 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
   if (process.env.NODE_ENV === 'production' && [baseURL, linkOrigin].some(url => new URL(url).protocol !== 'https:')) {
     throw new Error('Authentication origins must use HTTPS in production.');
   }
-  const appLink = (action, token) => {
+  const appLink = (action, token, callbackURL) => {
     const url = new URL(`/api/auth/links/${action}`, linkOrigin);
     url.searchParams.set('token', token);
+    if (callbackURL) {
+      try {
+        const destination = new URL(callbackURL, baseURL);
+        if (destination.origin === new URL(baseURL).origin) {
+          url.searchParams.set('from', `${destination.pathname}${destination.search}${destination.hash}`);
+        }
+      } catch {
+        // An invalid destination must not prevent delivery of the login link.
+      }
+    }
     return url.toString();
+  };
+  const emailReturnDestination = (url) => {
+    try {
+      const callback = new URL(new URL(url).searchParams.get('callbackURL') || '/', baseURL);
+      if (callback.origin === new URL(baseURL).origin) return callback.searchParams.get('from') || undefined;
+    } catch {
+      // Keep the default destination if a callback URL cannot be parsed.
+    }
   };
   async function sendEmail (user, template, url, request) {
     const { logger } = await auth.$context;
@@ -66,8 +85,8 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
       ipAddress: { ipAddressHeaders: ['x-auth-client-ip'] },
     },
     user: {
-      validateUserInfo ({ user }) {
-        const result = User.RegisterSchema.omit({ inviteId: true }).safeParse(user);
+      validateUserInfo ({ user, source }, ctx) {
+        const result = User.RegisterSchema.omit({ inviteId: true }).safeParse(magicRegistrationProfile(user, source, ctx));
         if (!result.success) return { error: 'invalid_profile', errorDescription: result.error.issues[0].message };
       },
       additionalFields: {
@@ -84,10 +103,10 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
       }),
       revokeSessionsOnPasswordReset: true,
       resetPasswordTokenExpiresIn: 30 * 60,
-      sendResetPassword: ({ user, token }, request) => sendEmail(user, 'password-reset', appLink('reset-password', token), request),
+      sendResetPassword: ({ user, token, url }, request) => sendEmail(user, 'password-reset', appLink('reset-password', token, emailReturnDestination(url)), request),
     },
     emailVerification: {
-      sendVerificationEmail: ({ user, token }, request) => sendEmail(user, 'verification', appLink('verify-email', token), request),
+      sendVerificationEmail: ({ user, token, url }, request) => sendEmail(user, 'verification', appLink('verify-email', token, emailReturnDestination(url)), request),
     },
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
@@ -128,6 +147,30 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
       }),
     },
     databaseHooks: {
+      user: {
+        update: {
+          async before (data, ctx) {
+            if (ctx?.path !== '/admin/set-role') return;
+            // The native endpoint authorizes the caller before this update hook runs.
+            const assigningAdmin = data.role?.split(',').includes('admin');
+            const target = await ctx.context.internalAdapter.findUserById(ctx.body.userId);
+            // Compare canonical IDs; PostgreSQL accepts alternate UUID spellings.
+            if (!assigningAdmin && target?.id === ctx.context.session.user.id) {
+              throw new APIError('BAD_REQUEST', {
+                code: 'SELF_DEMOTION_NOT_ALLOWED',
+                message: 'You cannot remove your own administrator access. Ask another administrator to make this change.',
+              });
+            }
+            if (!assigningAdmin) return;
+            if (!target?.emailVerified) {
+              throw new APIError('BAD_REQUEST', {
+                code: 'TARGET_EMAIL_NOT_VERIFIED',
+                message: 'This user must verify their email before becoming an administrator.',
+              });
+            }
+          },
+        },
+      },
       account: {
         create: {
           async before (account, ctx) {
@@ -148,14 +191,12 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
         },
       },
     },
-    plugins: [invitations, bearer(), magicLink({
-      disableSignUp: true,
-      storeToken: 'hashed',
+    plugins: [invitations, bearer(), registrationMagicLink({
       async sendMagicLink ({ email, token }, ctx) {
-        const user = await prisma.user.findUnique({ where: { email } });
+        const user = await prisma.user.findUnique({ where: { email } }) || ctx.context.magicRegistration;
         if (!user) return;
         try {
-          await sendEmail(user, 'magic-link', appLink('magic-link', token), ctx.request);
+          await sendEmail(user, 'magic-link', appLink('magic-link', token, ctx.body.callbackURL), ctx.request);
         } catch {
           ctx.context.logger.warn('Magic-link email delivery failed.');
         }

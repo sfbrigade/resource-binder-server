@@ -5,11 +5,13 @@ import { useMutation } from '@tanstack/react-query';
 import { Head } from '@unhead/react';
 
 import Api from '../Api';
+import { authPath, loginDestination } from '../LoginDestination';
 
 function ResetPassword () {
   const params = useParams();
   const [searchParams] = useSearchParams();
   const token = params.token || searchParams.get('token');
+  const from = loginDestination(searchParams.get('from'));
 
   const form = useForm({
     initialValues: {
@@ -23,7 +25,7 @@ function ResetPassword () {
   const onSubmitMutation = useMutation({
     mutationFn: (values) => Api.passwords.update(token, values.password),
     // Reload the current session and discard cached profiles after session revocation.
-    onSuccess: () => window.location.assign('/login?passwordReset=success'),
+    onSuccess: () => window.location.assign(authPath('/login?passwordReset=success', from)),
     onError: (errors) => form.setErrors(errors),
     onSettled: () => window.scrollTo({ top: 0, behavior: 'smooth' }),
   });
@@ -31,24 +33,24 @@ function ResetPassword () {
   return (
     <>
       <Head>
-        <title>Reset your password</title>
+        <title>Set your password</title>
         <meta name='referrer' content='no-referrer' />
       </Head>
       <Container>
-        <Title mb='md'>Reset your password</Title>
-        <form onSubmit={form.onSubmit(onSubmitMutation.mutateAsync)}>
+        <Title mb='md'>Set your password</Title>
+        <form onSubmit={form.onSubmit(onSubmitMutation.mutate)}>
           <Fieldset disabled={onSubmitMutation.isPending} variant='unstyled'>
             <Stack w={{ base: '100%', xs: 320 }}>
               {!token && (
                 <Alert color='red'>
                   Sorry, this password reset link is invalid.<br />
-                  <Link to='/passwords/forgot'>Request another?</Link>
+                  <Link to={authPath('/passwords/forgot', from)}>Request another?</Link>
                 </Alert>
               )}
               {form.errors._form && (
                 <Alert color='red'>
                   {form.errors._form}<br />
-                  <Link to='/passwords/forgot'>Request another?</Link>
+                  <Link to={authPath('/passwords/forgot', from)}>Request another?</Link>
                 </Alert>
               )}
               {token && (
@@ -59,10 +61,11 @@ function ResetPassword () {
                     key='password'
                     label='New password'
                     type='password'
+                    autoComplete='new-password'
                   />
                   <Group>
-                    <Button type='submit'>
-                      Submit
+                    <Button type='submit' loading={onSubmitMutation.isPending}>
+                      Save password
                     </Button>
                   </Group>
                 </>

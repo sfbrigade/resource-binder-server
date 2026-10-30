@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Head } from '@unhead/react';
 
 import Api from './Api';
+import { authPath, loginDestination } from './LoginDestination';
 
 export default function EmailLink ({ action }) {
   const [searchParams] = useSearchParams();
@@ -11,16 +12,18 @@ export default function EmailLink ({ action }) {
   const queryClient = useQueryClient();
   const token = searchParams.get('token');
   const verifyingEmail = action === 'verify-email';
+  const from = loginDestination(searchParams.get('from'));
   const title = verifyingEmail ? 'Verify your email' : 'Log in with your email link';
   // Only redeem on confirmation, so opening a link does not consume it.
   const mutation = useMutation({
     mutationFn: () => verifyingEmail ? Api.auth.verifyEmail(token) : Api.auth.verifyMagicLink(token),
-    onSuccess: (response) => {
+    onSuccess: async (response) => {
       if (verifyingEmail) {
-        navigate('/login', { replace: true, state: { flash: 'Your email has been verified. You can now log in.' } });
+        navigate(authPath('/login', from), { replace: true, state: { flash: 'Your email has been verified. You can now log in.', loginMethod: 'password' } });
       } else {
+        await queryClient.cancelQueries({ queryKey: ['users', 'me'], exact: true });
         queryClient.setQueryData(['users', 'me'], response.data);
-        navigate('/', { replace: true });
+        navigate(from, { replace: true });
       }
     },
   });
@@ -37,7 +40,7 @@ export default function EmailLink ({ action }) {
           {!token && <Alert color='red'>This link is invalid. Please request a new one.</Alert>}
           {mutation.error && <Alert color='red'>{mutation.error._form}</Alert>}
           {token && <Button loading={mutation.isPending} onClick={() => mutation.mutate()}>{verifyingEmail ? 'Verify email' : 'Log in'}</Button>}
-          <Link to='/login'>Back to login</Link>
+          <Link to={authPath('/login', from)}>Back to login</Link>
         </Stack>
       </Container>
     </>
