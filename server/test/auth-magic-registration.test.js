@@ -27,6 +27,10 @@ test('passwordless registration', async (t) => {
     assert.equal(await prisma.session.count(), 0);
     const token = await mailToken(mail);
     assert.ok(token);
+    const stored = await prisma.verification.findFirst();
+    assert.deepEqual(JSON.parse(stored.value), { type: 'magic-link', email, name: 'Email Member' });
+    const { internalAdapter } = await app.auth.$context;
+    assert.deepEqual((await internalAdapter.findVerificationValue(stored.identifier)).registration, { ...profile, email });
     const response = await redeem(token);
     assert.equal(response.statusCode, 200, response.body);
     const user = response.json().user;
@@ -63,16 +67,29 @@ test('passwordless registration', async (t) => {
     await waitForMail();
     assert.equal(mail.getSentMail().length, 0);
     const stored = await prisma.verification.findFirst();
-    assert.equal(JSON.parse(stored.value).registration, undefined);
+    assert.equal(stored.registration, null);
     const token = 'test-token-without-registration';
+    const identifier = `magic-link:${createHash('sha256').update(token).digest('base64url')}`;
     await prisma.verification.create({
       data: {
-        identifier: createHash('sha256').update(token).digest('base64url'),
-        value: JSON.stringify({ email, name: 'Email Member' }),
+        identifier,
+        value: JSON.stringify({ type: 'magic-link', email, name: 'Email Member' }),
         expiresAt: new Date(Date.now() + 60_000),
       }
     });
     assert.equal((await redeem(token)).statusCode, 400);
+    assert.equal(await prisma.verification.findUnique({ where: { identifier } }), null);
+    assert.equal(await prisma.user.count({ where: { email } }), 0);
+  });
+
+  await t.test('expired registration links use native token expiry without creating an account', async () => {
+    assert.equal((await requestLink()).statusCode, 200);
+    const token = await mailToken(mail);
+    await prisma.verification.updateMany({ data: { expiresAt: new Date(0) } });
+    const response = await redeem(token);
+    assert.equal(response.statusCode, 400, response.body);
+    assert.equal(response.json().code, 'INVALID_TOKEN');
+    assert.equal(await prisma.verification.count(), 0);
     assert.equal(await prisma.user.count({ where: { email } }), 0);
   });
 

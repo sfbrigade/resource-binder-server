@@ -28,7 +28,8 @@ After login, it loads `/api/users/me` for the application profile and admin perm
 
 Passwordless signup uses `/api/auth/sign-in/magic-link` with `email` and
 `metadata.registration: { firstName, lastName, inviteId? }`. The server validates and
-stores those profile fields with the hashed, expiring verification record. Confirmation
+stores those profile fields in an additional `registration` field on the hashed,
+expiring verification record, leaving Better Auth's token value unchanged. Confirmation
 creates a verified user and session through Better Auth, and accepts any invitation in
 the same transaction. Public registration settings and invitation availability are
 checked both when requesting and confirming the link.
@@ -86,6 +87,9 @@ a role change. Confirmed role updates remain successful if a background profile 
 fails, and role saves preserve unsaved profile photos.
 
 ## Migration notes
+
+Upgrading from Better Auth 1.7.6 requires fresh magic links; previously issued links
+are invalid. Upgrade all servers sharing verification storage together.
 
 Server startup applies the checked-in migrations; it never resets the database.
 The Better Auth changes are consolidated in `20260909000100_better_auth_magic_links`.

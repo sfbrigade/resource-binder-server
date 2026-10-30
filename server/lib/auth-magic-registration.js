@@ -1,17 +1,14 @@
-import { createHash } from 'node:crypto';
 import { getCurrentAdapter, runWithTransaction } from '@better-auth/core/context';
 import { APIError, createAuthEndpoint, createAuthMiddleware, isAPIError } from 'better-auth/api';
 import { magicLink } from 'better-auth/plugins';
 import User from '#models/user.js';
-
-const hashToken = token => createHash('sha256').update(token).digest('base64url');
 
 export function magicRegistrationProfile (user, source, ctx) {
   if (source.method !== 'magic-link') return user;
   return { ...user, ...ctx.context.magicRegistration };
 }
 
-// Extend the native plugin's admission rules and token metadata. Better Auth
+// Extend the native plugin's admission rules and verification fields. Better Auth
 // still generates, expires and consumes tokens and creates users and sessions.
 export function registrationMagicLink ({ sendMagicLink }) {
   async function admit (registration, ctx) {
@@ -40,10 +37,16 @@ export function registrationMagicLink ({ sendMagicLink }) {
   const plugin = magicLink({
     // New accounts are admitted only with validated registration data stored
     // alongside their token; a plain login request cannot create an account.
-    disableSignUp: false,
-    storeToken: { type: 'custom-hasher', hash: hashToken },
+    storeToken: 'hashed',
     sendMagicLink,
   });
+  plugin.schema = {
+    verification: {
+      fields: {
+        registration: { type: 'json', required: false, input: false, returned: false },
+      },
+    },
+  };
   plugin.hooks = {
     before: [{
       matcher: ctx => ctx.path === '/sign-in/magic-link' && ctx.body?.metadata?.registration !== undefined,
@@ -71,7 +74,20 @@ export function registrationMagicLink ({ sendMagicLink }) {
           create: {
             before (data, ctx) {
               if (ctx?.path !== '/sign-in/magic-link' || !ctx.context.magicRegistration) return;
-              return { data: { value: JSON.stringify({ ...JSON.parse(data.value), registration: ctx.context.magicRegistration }) } };
+              return { data: { registration: ctx.context.magicRegistration } };
+            }
+          },
+          delete: {
+            async before (data, ctx) {
+              if (ctx?.path !== '/magic-link/verify' || data.expiresAt <= new Date()) return;
+              // Native token consumption supplies the stored profile. No second
+              // token lookup or knowledge of Better Auth's identifiers is needed.
+              if (!data.registration) return;
+              const { email } = JSON.parse(data.value);
+              const result = User.RegisterSchema.safeParse(data.registration);
+              if (!result.success || result.data.email !== email) throw invalidInvite();
+              ctx.context.magicRegistration = result.data;
+              await admit(result.data, ctx);
             }
           }
         },
@@ -96,14 +112,6 @@ export function registrationMagicLink ({ sendMagicLink }) {
       // Commit account creation, session creation and invitation acceptance
       // together. A revoked or concurrently claimed invite rolls all three back.
       outcome = await runWithTransaction(ctx.context.adapter, async () => {
-        const stored = await ctx.context.internalAdapter.findVerificationValue(hashToken(ctx.query.token));
-        const registration = stored && stored.expiresAt > new Date() ? JSON.parse(stored.value).registration : null;
-        if (registration) {
-          const result = User.RegisterSchema.safeParse(registration);
-          if (!result.success || result.data.email !== JSON.parse(stored.value).email) throw invalidInvite();
-          ctx.context.magicRegistration = result.data;
-          await admit(result.data, ctx);
-        }
         let result;
         try {
           result = await verify({ ...ctx, asResponse: false, returnHeaders: true });
@@ -114,6 +122,7 @@ export function registrationMagicLink ({ sendMagicLink }) {
           if (!isAPIError(error) || (ctx.context.magicRegistrationCreated && !ctx.context.newSession)) throw error;
           result = { error };
         }
+        const registration = ctx.context.magicRegistration;
         if (registration?.inviteId && ctx.context.magicRegistrationCreated) {
           const adapter = await getCurrentAdapter(ctx.context.adapter);
           const invite = await adapter.update({
