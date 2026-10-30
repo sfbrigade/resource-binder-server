@@ -341,7 +341,10 @@ describe('leaving a session', () => {
     user.queryClient.setQueryData(['users', profile.id], { data: profile });
     await user.click(screen.getByRole('button', { name: 'Log out' }));
     await screen.findByText('Home destination');
-    expect(user.queryClient.getQueryData(['users', profile.id])).toBeUndefined();
-    expect(screen.queryByRole('link', { name: 'Test!' })).toBeNull();
+    await waitFor(() => {
+      expect(user.queryClient.getQueryData(['users', profile.id])).toBeUndefined();
+      expect(screen.queryByRole('link', { name: 'Test!' })).toBeNull();
+      expect(screen.getByRole('link', { name: 'Log in' })).toBeTruthy();
+    });
   });
 });
