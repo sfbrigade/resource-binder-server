@@ -7,9 +7,15 @@ test('web client authentication through the application routes', async (t) => {
   const app = await build(t);
   let cookie = '';
   let unavailableProfileId;
+  let sessionProfileStatus;
   // Exercise the web client's real request paths, bodies and error handling.
   const previousAdapter = axios.defaults.adapter;
   axios.defaults.adapter = async config => {
+    if (config.method === 'get' && config.url === '/api/users/me' && sessionProfileStatus) {
+      const response = { status: sessionProfileStatus, data: null, headers: {}, config };
+      if (sessionProfileStatus === 204) return response;
+      throw new axios.AxiosError('Temporary profile read failure', undefined, config, undefined, response);
+    }
     if (config.method === 'get' && config.url === `/api/users/${unavailableProfileId}`) {
       const response = { status: 503, data: { message: 'Temporary profile read failure' }, config };
       throw new axios.AxiosError('Profile read failed', undefined, config, undefined, response);
@@ -32,7 +38,22 @@ test('web client authentication through the application routes', async (t) => {
   } finally {
     axios.defaults.adapter = previousAdapter;
   }
-  t.beforeEach(() => { cookie = ''; unavailableProfileId = undefined; });
+  t.beforeEach(() => { cookie = ''; unavailableProfileId = undefined; sessionProfileStatus = undefined; });
+
+  for (const method of ['password', 'magic-link']) {
+    for (const status of [204, 503]) {
+      await t.test(`${method} login reports a form error when the session profile returns ${status}`, async () => {
+        const email = 'regular.user@test.com';
+        let token;
+        if (method === 'magic-link') {
+          await Api.auth.sendMagicLink(email);
+          token = await mailToken(nodemailerMock.mock);
+        }
+        sessionProfileStatus = status;
+        await assert.rejects(method === 'password' ? Api.auth.login(email, 'test') : Api.auth.verifyMagicLink(token), error => typeof error._form === 'string');
+      });
+    }
+  }
 
   await t.test('login emails retain the requested application destination and reject external destinations', async () => {
     const callbackURL = '/account?tab=profile#password';
@@ -48,14 +69,44 @@ test('web client authentication through the application routes', async (t) => {
     assert.equal(nodemailerMock.mock.getSentMail().length, mailCount);
   });
 
+  for (const action of ['verify-email', 'reset-password']) {
+    await t.test(`${action} emails retain the login destination through confirmation`, async () => {
+      const email = 'recovery.return@example.com';
+      await Api.auth.register({ firstName: 'Return', lastName: 'Member', email, password });
+      await waitForMail();
+      nodemailerMock.mock.reset();
+      const from = '/account?tab=profile#password';
+      if (action === 'verify-email') {
+        await Api.auth.sendVerificationEmail(email, `/login?from=${encodeURIComponent(from)}`);
+      } else {
+        await Api.passwords.reset(email, `/passwords/reset?from=${encodeURIComponent(from)}`);
+      }
+      await waitForMail();
+      const text = nodemailerMock.mock.getSentMail().at(-1).text;
+      const link = new URL(text.match(/http[^\s]+/)[0]);
+      assert.equal(link.pathname, `/api/auth/links/${action}`);
+      assert.equal(link.searchParams.get('from'), from);
+      if (action === 'verify-email') {
+        await Api.auth.verifyEmail(link.searchParams.get('token'));
+        assert.equal((await Api.auth.login(email, password)).data.email, email);
+      } else {
+        await Api.passwords.update(link.searchParams.get('token'), `${password}Changed`);
+        assert.equal((await app.prisma.account.findFirst({ where: { user: { email }, providerId: 'credential' } })) !== null, true);
+      }
+    });
+  }
+
   await t.test('the registration form can request an email link without submitting a password and receive an application profile', async () => {
     const email = 'passwordless.web@example.com';
     const response = await Api.auth.register({
-      registrationMethod: 'magic-link', firstName: 'Email', lastName: 'Member', email, password: '',
+      registrationMethod: 'magic-link', firstName: 'Email', lastName: 'Member', email, password: '', callbackURL: '/account?tab=profile',
     });
     assert.equal(response.status, 200);
     assert.equal(await app.prisma.user.count({ where: { email } }), 0);
-    const signedIn = await Api.auth.verifyMagicLink(await mailToken(nodemailerMock.mock));
+    const token = await mailToken(nodemailerMock.mock);
+    const link = new URL(nodemailerMock.mock.getSentMail().at(-1).text.match(/http[^\s]+/)[0]);
+    assert.equal(link.searchParams.get('from'), '/account?tab=profile');
+    const signedIn = await Api.auth.verifyMagicLink(token);
     assert.equal(signedIn.data.email, email);
     assert.equal(signedIn.data.firstName, 'Email');
     assert.equal(signedIn.data.emailVerified, true);

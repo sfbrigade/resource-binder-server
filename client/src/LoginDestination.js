@@ -11,3 +11,10 @@ export function loginDestination (value) {
     return '/';
   }
 }
+
+export function authPath (path, from) {
+  const target = new URL(path, 'https://app.invalid');
+  const destination = loginDestination(from);
+  if (destination !== '/') target.searchParams.set('from', destination);
+  return `${target.pathname}${target.search}${target.hash}`;
+}

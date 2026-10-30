@@ -8,7 +8,7 @@ import { Head } from '@unhead/react';
 import Api from './Api';
 import { useAuthContext } from './AuthContext';
 import { useStaticContext } from './StaticContext';
-import { loginDestination } from './LoginDestination';
+import { authPath, loginDestination } from './LoginDestination';
 
 function Login () {
   const staticContext = useStaticContext();
@@ -17,7 +17,7 @@ function Login () {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [loginMethod, setLoginMethod] = useState('magic-link');
+  const [loginMethod, setLoginMethod] = useState(() => location.state?.loginMethod === 'password' || searchParams.get('passwordReset') === 'success' ? 'password' : 'magic-link');
 
   const from = loginDestination(location.state?.from || searchParams.get('from'));
   const flash = location.state?.flash || (searchParams.get('passwordReset') === 'success' ? 'Your new password has been saved.' : null);
@@ -29,29 +29,39 @@ function Login () {
   }, [authContext.user, from, navigate]);
 
   const form = useForm({
-    mode: 'uncontrolled',
     initialValues: {
-      email: '',
+      email: location.state?.email || '',
       password: '',
     },
     validate: {
       email: isEmail('Please enter a valid email address.'),
       password: (value) => loginMethod === 'password'
-        ? hasLength({ min: 8 }, 'Passwords must be at least 8 characters.')(value)
+        ? hasLength({ min: 1 }, 'Enter your password.')(value)
         : null,
+    },
+    onValuesChange: (values, previous) => {
+      if (values.email !== previous.email) {
+        form.clearErrors();
+        onSubmitMutation.reset();
+        verificationMutation.reset();
+        magicLinkMutation.reset();
+      }
     },
   });
 
   const onSubmitMutation = useMutation({
     mutationFn: ({ email, password }) => Api.auth.login(email, password),
-    onSuccess: (response) => queryClient.setQueryData(['users', 'me'], response.data),
+    onSuccess: async (response) => {
+      await queryClient.cancelQueries({ queryKey: ['users', 'me'], exact: true });
+      queryClient.setQueryData(['users', 'me'], response.data);
+    },
     onError: (errors) => form.setErrors(errors),
     onSettled: () => window.scrollTo({ top: 0, behavior: 'smooth' }),
   });
 
   const verificationMutation = useMutation({
-    mutationFn: () => Api.auth.sendVerificationEmail(form.getValues().email),
-    onError: (errors) => form.setErrors(errors),
+    mutationFn: () => Api.auth.sendVerificationEmail(form.getValues().email, authPath('/login', from)),
+    onError: (errors) => form.setErrors({ ...form.errors, ...errors }),
   });
 
   const magicLinkMutation = useMutation({
@@ -59,6 +69,9 @@ function Login () {
   });
 
   function onSubmit (values) {
+    form.clearErrors();
+    verificationMutation.reset();
+    magicLinkMutation.reset();
     if (loginMethod === 'password') {
       onSubmitMutation.mutate(values);
     } else {
@@ -87,7 +100,11 @@ function Login () {
               {flash && <Alert>{flash}</Alert>}
               {form.errors._form && <Alert color='red'>{form.errors._form}</Alert>}
               {form.errors._code === 'EMAIL_NOT_VERIFIED' && (
-                <Button variant='light' loading={verificationMutation.isPending} onClick={() => verificationMutation.mutate()}>
+                <Button
+                  type='button' variant='light' loading={verificationMutation.isPending} onClick={() => {
+                    if (!form.validateField('email').hasError) verificationMutation.mutate();
+                  }}
+                >
                   Resend verification email
                 </Button>
               )}
@@ -120,11 +137,11 @@ function Login () {
               {magicLinkMutation.error && <Alert color='red'>{magicLinkMutation.error._form}</Alert>}
               {magicLinkMutation.isSuccess && <Alert>If this email belongs to an eligible account, a login link will arrive shortly. Check your inbox.</Alert>}
               <Box>
-                <Link to='/passwords/forgot'>Forgot your password?</Link>
+                <Link to={authPath('/passwords/forgot', from)} state={{ email: form.getValues().email }}>Forgot your password?</Link>
                 {staticContext?.env?.VITE_FEATURE_REGISTRATION === 'true' && (
                   <>
                     <br />
-                    <Link to='/register'>Need an account?</Link>
+                    <Link to={authPath('/register', from)} state={{ email: form.values.email }}>Need an account?</Link>
                   </>
                 )}
               </Box>

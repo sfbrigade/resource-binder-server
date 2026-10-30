@@ -47,7 +47,7 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
   const appLink = (action, token, callbackURL) => {
     const url = new URL(`/api/auth/links/${action}`, linkOrigin);
     url.searchParams.set('token', token);
-    if (action === 'magic-link' && callbackURL) {
+    if (callbackURL) {
       try {
         const destination = new URL(callbackURL, baseURL);
         if (destination.origin === new URL(baseURL).origin) {
@@ -58,6 +58,14 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
       }
     }
     return url.toString();
+  };
+  const emailReturnDestination = (url) => {
+    try {
+      const callback = new URL(new URL(url).searchParams.get('callbackURL') || '/', baseURL);
+      if (callback.origin === new URL(baseURL).origin) return callback.searchParams.get('from') || undefined;
+    } catch {
+      // Keep the default destination if a callback URL cannot be parsed.
+    }
   };
   async function sendEmail (user, template, url, request) {
     const { logger } = await auth.$context;
@@ -95,10 +103,10 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
       }),
       revokeSessionsOnPasswordReset: true,
       resetPasswordTokenExpiresIn: 30 * 60,
-      sendResetPassword: ({ user, token }, request) => sendEmail(user, 'password-reset', appLink('reset-password', token), request),
+      sendResetPassword: ({ user, token, url }, request) => sendEmail(user, 'password-reset', appLink('reset-password', token, emailReturnDestination(url)), request),
     },
     emailVerification: {
-      sendVerificationEmail: ({ user, token }, request) => sendEmail(user, 'verification', appLink('verify-email', token), request),
+      sendVerificationEmail: ({ user, token, url }, request) => sendEmail(user, 'verification', appLink('verify-email', token, emailReturnDestination(url)), request),
     },
     hooks: {
       before: createAuthMiddleware(async (ctx) => {

@@ -74,6 +74,14 @@ function handleAuthError (error) {
   throw { _form: error.response?.data?.message || error.message };
 }
 
+async function loadAuthenticatedUser () {
+  const response = await Api.users.me().catch(handleAuthError);
+  if (response.status !== StatusCodes.OK || !response.data?.id) {
+    throw { _form: 'Your session could not be confirmed. Please log in again.' };
+  }
+  return response;
+}
+
 const Api = {
   calculateLastPage,
   parseLinkHeader,
@@ -88,23 +96,24 @@ const Api = {
   auth: {
     async login (email, password) {
       await instance.post('/api/auth/sign-in/email', { email, password }).catch(handleAuthError);
-      return Api.users.me();
+      return loadAuthenticatedUser();
     },
     logout () {
       return instance.post('/api/auth/sign-out', {}).catch(handleAuthError);
     },
     register ({ registrationMethod = 'password', password, ...data }) {
       if (registrationMethod === 'magic-link') {
-        const { email, firstName, lastName, inviteId } = data;
+        const { email, firstName, lastName, inviteId, callbackURL } = data;
         return instance.post('/api/auth/sign-in/magic-link', {
           email,
+          ...(callbackURL ? { callbackURL } : {}),
           metadata: { registration: { firstName, lastName, inviteId } },
         }).catch(handleAuthError);
       }
       return instance.post('/api/auth/sign-up/email', { ...data, password }).catch(handleAuthError);
     },
-    sendVerificationEmail (email) {
-      return instance.post('/api/auth/send-verification-email', { email }).catch(handleAuthError);
+    sendVerificationEmail (email, callbackURL) {
+      return instance.post('/api/auth/send-verification-email', { email, ...(callbackURL ? { callbackURL } : {}) }).catch(handleAuthError);
     },
     verifyEmail (token) {
       return instance.get('/api/auth/verify-email', { params: { token } }).catch(handleAuthError);
@@ -114,7 +123,7 @@ const Api = {
     },
     async verifyMagicLink (token) {
       await instance.get('/api/auth/magic-link/verify', { params: { token } }).catch(handleAuthError);
-      return Api.users.me();
+      return loadAuthenticatedUser();
     },
   },
   invites: {
@@ -138,8 +147,8 @@ const Api = {
     },
   },
   passwords: {
-    reset (email) {
-      return instance.post('/api/auth/request-password-reset', { email }).catch(handleAuthError);
+    reset (email, redirectTo) {
+      return instance.post('/api/auth/request-password-reset', { email, ...(redirectTo ? { redirectTo } : {}) }).catch(handleAuthError);
     },
     update (token, password) {
       return instance.post('/api/auth/reset-password', { token, newPassword: password }).catch(handleAuthError);

@@ -10,7 +10,7 @@ const value = source.searchParams.get(action === 'invite' ? 'inviteId' : 'token'
 if (value && (action === 'invite' || routes[action])) {
   const target = new URL(action === 'invite' ? '/invites/' + encodeURIComponent(value) : routes[action], ${JSON.stringify(new URL(request.server.auth.options.baseURL).origin)});
   if (action !== 'invite') target.searchParams.set('token', value);
-  if (action === 'magic-link' && source.searchParams.has('from')) target.searchParams.set('from', source.searchParams.get('from'));
+  if (action !== 'invite' && source.searchParams.has('from')) target.searchParams.set('from', source.searchParams.get('from'));
   const link = document.getElementById('continue');
   link.href = target.href;
   link.hidden = false;

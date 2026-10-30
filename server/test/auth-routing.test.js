@@ -68,7 +68,7 @@ test('autoloaded auth routes apply the API prefix once and keep landing pages se
     });
     const paths = { 'magic-link': '/auth/magic-link?token=test-token', 'verify-email': '/auth/verify-email?token=test-token', 'reset-password': '/passwords/reset?token=test-token', invite: '/invites/test-invite' };
     const destination = new URL(paths[action], 'https://example.com');
-    if (action === 'magic-link') destination.searchParams.set('from', '/account?tab=profile#password');
+    if (action !== 'invite') destination.searchParams.set('from', '/account?tab=profile#password');
     assert.equal(link.href, destination.href, 'Continue on the web origin, including when mail links use a separate domain');
     assert.equal(link.hidden, false);
     const missingTokenLink = { hidden: true };

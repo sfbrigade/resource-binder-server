@@ -1,23 +1,31 @@
-import { Link } from 'react-router';
+import { Link, useLocation, useSearchParams } from 'react-router';
 import { Alert, Box, Button, Container, Fieldset, Group, Stack, TextInput, Title } from '@mantine/core';
 import { isEmail, useForm } from '@mantine/form';
 import { useMutation } from '@tanstack/react-query';
 import { Head } from '@unhead/react';
 
 import Api from '../Api';
+import { authPath, loginDestination } from '../LoginDestination';
 
 function ForgotPassword () {
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const from = loginDestination(searchParams.get('from'));
   const form = useForm({
     initialValues: {
-      email: '',
+      email: location.state?.email || '',
     },
     validate: {
       email: isEmail('Please enter a valid email address.'),
     },
+    onValuesChange: () => {
+      form.clearErrors();
+      onSubmitMutation.reset();
+    },
   });
 
   const onSubmitMutation = useMutation({
-    mutationFn: (values) => Api.passwords.reset(values.email),
+    mutationFn: (values) => Api.passwords.reset(values.email, authPath('/passwords/reset', from)),
     onError: (errors) => form.setErrors(errors),
     onSettled: () => window.scrollTo({ top: 0, behavior: 'smooth' }),
   });
@@ -46,7 +54,7 @@ function ForgotPassword () {
                 <Button type='submit' loading={onSubmitMutation.isPending}>Email me a password link</Button>
               </Group>
               <Box>
-                <Link to='/login'>Back to login...</Link>
+                <Link to={authPath('/login', from)} state={{ email: form.values.email, loginMethod: 'password' }}>Back to login...</Link>
               </Box>
             </Stack>
           </Fieldset>

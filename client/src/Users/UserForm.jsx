@@ -111,7 +111,7 @@ function UserEditor ({ userId }) {
               <Fieldset legend='Sign-in options'>
                 <Stack>
                   <Text size='sm'>You can log in with an email link without a password. Add a password if you also want to use password login.</Text>
-                  <Link to='/passwords/forgot'>Set or reset your password</Link>
+                  <Link to='/passwords/forgot?from=%2Faccount' state={{ email: response.data.email }}>Set or reset your password</Link>
                 </Stack>
               </Fieldset>
             )}

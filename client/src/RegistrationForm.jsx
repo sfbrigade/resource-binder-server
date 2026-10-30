@@ -1,12 +1,12 @@
 import { Alert, Button, Fieldset, Radio, Stack, TextInput } from '@mantine/core';
 import { isEmail, hasLength, useForm } from '@mantine/form';
 
-function RegistrationForm ({ onSubmitMutation }) {
+function RegistrationForm ({ onSubmitMutation, initialEmail = '' }) {
   const form = useForm({
     initialValues: {
       firstName: '',
       lastName: '',
-      email: '',
+      email: initialEmail,
       password: '',
       registrationMethod: 'magic-link',
     },

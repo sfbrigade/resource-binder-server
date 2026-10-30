@@ -5,11 +5,13 @@ import { useMutation } from '@tanstack/react-query';
 import { Head } from '@unhead/react';
 
 import Api from '../Api';
+import { authPath, loginDestination } from '../LoginDestination';
 
 function ResetPassword () {
   const params = useParams();
   const [searchParams] = useSearchParams();
   const token = params.token || searchParams.get('token');
+  const from = loginDestination(searchParams.get('from'));
 
   const form = useForm({
     initialValues: {
@@ -23,7 +25,7 @@ function ResetPassword () {
   const onSubmitMutation = useMutation({
     mutationFn: (values) => Api.passwords.update(token, values.password),
     // Reload the current session and discard cached profiles after session revocation.
-    onSuccess: () => window.location.assign('/login?passwordReset=success'),
+    onSuccess: () => window.location.assign(authPath('/login?passwordReset=success', from)),
     onError: (errors) => form.setErrors(errors),
     onSettled: () => window.scrollTo({ top: 0, behavior: 'smooth' }),
   });
@@ -42,13 +44,13 @@ function ResetPassword () {
               {!token && (
                 <Alert color='red'>
                   Sorry, this password reset link is invalid.<br />
-                  <Link to='/passwords/forgot'>Request another?</Link>
+                  <Link to={authPath('/passwords/forgot', from)}>Request another?</Link>
                 </Alert>
               )}
               {form.errors._form && (
                 <Alert color='red'>
                   {form.errors._form}<br />
-                  <Link to='/passwords/forgot'>Request another?</Link>
+                  <Link to={authPath('/passwords/forgot', from)}>Request another?</Link>
                 </Alert>
               )}
               {token && (

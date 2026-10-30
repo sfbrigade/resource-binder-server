@@ -9,6 +9,8 @@ standard APIs and the [README](../README.md#authentication-setup) for required c
 The web login page offers email-link login and password login. Both return to the
 originally requested application page. Registration and invitation acceptance offer
 email-link signup (the default) or password signup. Both require first and last names.
+Verification, password recovery, and registration keep that return destination when
+entered from login. Returning from password setup or verification selects password login.
 
 Password signup stays signed out until email verification, and the login form offers
 verification resends. Email-link signup creates the verified account and signs the
