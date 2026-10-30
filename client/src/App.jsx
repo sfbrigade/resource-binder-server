@@ -14,6 +14,7 @@ import { useStaticContext } from './StaticContext';
 import AppRedirects from './AppRedirects';
 import AppTheme from './AppTheme';
 import Header from './Header';
+import NavigationLinks from './NavigationLinks';
 import Home from './Home';
 import Login from './Login';
 import EmailLink from './EmailLink';
@@ -46,7 +47,9 @@ function App () {
               <AppShell.Header>
                 <Header opened={opened} close={close} toggle={toggle} />
               </AppShell.Header>
-              <AppShell.Navbar />
+              <AppShell.Navbar aria-label='Mobile navigation' aria-hidden={!opened} hiddenFrom='sm'>
+                {opened && <NavigationLinks close={close} mobile />}
+              </AppShell.Navbar>
               <AppShell.Main px={0}>
                 <Routes>
                   <Route
