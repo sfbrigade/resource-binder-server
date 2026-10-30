@@ -1,4 +1,4 @@
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, useState } from 'react';
 import { Routes, Route } from 'react-router';
 import '@mantine/core/styles.css';
 import { AppShell, Container, Loader, MantineProvider } from '@mantine/core';
@@ -25,9 +25,8 @@ import UsersRoutes from './Users/UsersRoutes';
 
 const AdminRoutes = lazy(() => import('./Admin/AdminRoutes'));
 
-const queryClient = new QueryClient();
-
 function App () {
+  const [queryClient] = useState(() => new QueryClient());
   const [opened, { close, toggle }] = useDisclosure();
   const staticContext = useStaticContext();
   useHead({

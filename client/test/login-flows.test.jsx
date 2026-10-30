@@ -15,6 +15,7 @@ import EmailLink from '../src/EmailLink';
 import Register from '../src/Register';
 import ForgotPassword from '../src/Passwords/ForgotPassword';
 import ResetPassword from '../src/Passwords/ResetPassword';
+import Invite from '../src/Invites/Invite';
 
 vi.mock('../src/Api', () => ({
   default: {
@@ -29,6 +30,7 @@ vi.mock('../src/Api', () => ({
     },
     passwords: { reset: vi.fn(), update: vi.fn() },
     users: { me: vi.fn() },
+    invites: { get: vi.fn() },
   },
 }));
 
@@ -56,6 +58,7 @@ function open (entry = '/login') {
                 <Routes>
                   <Route path='/login' element={<Login />} />
                   <Route path='/register' element={<Register />} />
+                  <Route path='/invites/:inviteId' element={<Invite />} />
                   <Route path='/passwords/forgot' element={<ForgotPassword />} />
                   <Route path='/passwords/reset' element={<ResetPassword />} />
                   <Route path='/auth/verify-email' element={<EmailLink action='verify-email' />} />
@@ -301,6 +304,23 @@ describe('verification and recovery branches', () => {
 });
 
 describe('leaving a session', () => {
+  it('uses the shared logout action to switch accounts without leaving an invitation', async () => {
+    const invitedEmail = 'invited@example.com';
+    Api.users.me.mockResolvedValue({ status: 200, data: profile });
+    Api.invites.get.mockResolvedValue({ data: { email: invitedEmail } });
+    Api.auth.logout.mockImplementationOnce(async () => {
+      Api.users.me.mockResolvedValue({ status: 204, data: null });
+      return { data: { status: true } };
+    });
+    const user = open('/invites/invitation-id');
+    await user.click(await screen.findByRole('button', { name: 'Log out to accept invitation' }));
+    expect(await screen.findByLabelText('Email', { exact: true })).toBeTruthy();
+    expect(screen.getByLabelText('Email', { exact: true }).value).toBe(invitedEmail);
+    expect(screen.getByTestId('location').textContent).toBe('/invites/invitation-id');
+    expect(screen.queryByRole('link', { name: 'Test!' })).toBeNull();
+    expect(Api.auth.logout).toHaveBeenCalledTimes(1);
+  });
+
   it('shows a logout error and keeps the current user signed in when logout fails', async () => {
     Api.users.me.mockResolvedValue({ status: 200, data: profile });
     Api.auth.logout.mockRejectedValueOnce({ _form: 'Unable to log out. Please try again.' });

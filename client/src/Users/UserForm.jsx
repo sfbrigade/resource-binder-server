@@ -53,7 +53,6 @@ function UserEditor ({ userId }) {
       queryClient.setQueryData(['users', userId], response);
       if (editingSelf) {
         queryClient.setQueryData(['users', 'me'], response.data);
-        authContext.setUser(response.data);
       }
       form.setValues({
         firstName: response.data.firstName,
