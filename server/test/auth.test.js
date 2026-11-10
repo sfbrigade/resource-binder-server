@@ -1,6 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildAuth, mailToken, password, post, signUp, verifiedUser } from './auth-helper.js';
+import { signJWT } from 'better-auth/crypto';
+import {
+  authSecret,
+  buildAuth,
+  mailToken,
+  password,
+  post,
+  signUp,
+  verifiedAdmin,
+  verifiedUser,
+} from './auth-helper.js';
 
 test('Better Auth foundation', async (t) => {
   const { app, prisma } = await buildAuth(t);
@@ -15,10 +25,14 @@ test('Better Auth passwords and invitations', async (t) => {
   const { app, auth, prisma, mail } = fixture;
 
   await t.test('signup requires verification, then password login and logout work', async () => {
-    const response = await signUp(app);
+    assert.equal((await signUp(app, 'person@example.com', { role: 'admin' })).statusCode, 400);
+    assert.equal(await prisma.user.count({ where: { email: 'person@example.com' } }), 0);
+    const response = await signUp(app, 'person@example.com', { emailVerified: true });
     assert.equal(response.statusCode, 200, response.body);
     assert.equal(response.json().token, null);
     assert.equal(response.json().user.name, 'Test Person');
+    assert.equal(response.json().user.emailVerified, false);
+    assert.equal(response.json().user.role, 'user');
     assert.equal((await post(app, '/sign-in/email', { email: 'person@example.com', password })).statusCode, 403);
     assert.equal((await app.inject(`/api/auth/verify-email?token=${mailToken(mail)}`)).statusCode, 200);
     const login = await post(app, '/sign-in/email', { email: 'person@example.com', password });
@@ -29,13 +43,45 @@ test('Better Auth passwords and invitations', async (t) => {
     assert.equal((await app.inject({ url: '/api/auth/get-session', headers: { cookie } })).json(), null);
   });
 
+  await t.test('duplicate signup retains the same public shape with admin fields', async () => {
+    const created = await signUp(app);
+    const duplicate = await signUp(app);
+    assert.equal(created.statusCode, 200, created.body);
+    assert.equal(duplicate.statusCode, 200, duplicate.body);
+    assert.equal(created.json().token, null);
+    assert.equal(duplicate.json().token, null);
+    const stableFields = ({ id, createdAt, updatedAt, ...user }) => user;
+    assert.deepEqual(stableFields(duplicate.json().user), stableFields(created.json().user));
+    assert.equal(await prisma.user.count({ where: { email: 'person@example.com' } }), 1);
+    assert.equal(await prisma.session.count(), 0);
+  });
+
+  await t.test('native user admission validates profiles without rewriting trusted admin input', async () => {
+    const body = {
+      name: 'Preferred display name',
+      email: 'bootstrap@example.com',
+      password,
+      role: 'admin',
+      data: { firstName: 'First', lastName: 'Admin', emailVerified: true },
+    };
+    await assert.rejects(auth.api.createUser({ body: { ...body, data: { ...body.data, firstName: '' } } }), { statusCode: 403 });
+    assert.equal(await prisma.user.count({ where: { email: body.email } }), 0);
+    const { user } = await auth.api.createUser({ body });
+    assert.equal(user.name, body.name);
+    assert.equal(user.emailVerified, true);
+    assert.equal(user.role, 'admin');
+    assert.equal((await post(app, '/sign-in/email', { email: body.email, password })).statusCode, 200);
+  });
+
   await t.test('password validation and reset revoke old sessions', async () => {
-    assert.equal((await signUp(app, 'weak@example.com', { password: 'weakpassword' })).statusCode, 400);
+    assert.equal((await signUp(app, 'weak@example.com', { password: 'short' })).statusCode, 400);
+    assert.equal((await signUp(app, 'long@example.com', { password: 'a'.repeat(129) })).statusCode, 400);
     const { headers } = await verifiedUser(fixture);
     const request = await post(app, '/request-password-reset', { email: 'person@example.com' });
     assert.equal(request.statusCode, 200, request.body);
     const token = mailToken(mail);
-    assert.equal((await post(app, '/reset-password', { token, newPassword: 'weakpassword' })).statusCode, 400);
+    assert.equal((await post(app, '/reset-password', { token, newPassword: 'short' })).statusCode, 400);
+    assert.equal((await post(app, '/reset-password', { token, newPassword: 'a'.repeat(129) })).statusCode, 400);
     assert.equal((await post(app, '/reset-password', { token, newPassword: `${password}New` })).statusCode, 200);
     assert.equal((await app.inject({ url: '/api/auth/get-session', headers })).json(), null);
     assert.equal((await post(app, '/reset-password', { token, newPassword: password })).statusCode, 400);
@@ -48,65 +94,75 @@ test('Better Auth passwords and invitations', async (t) => {
     }
   });
 
-  await t.test('confirmed email changes invalidate only that users old reset links', async () => {
-    const member = await verifiedUser(fixture);
-    const other = await verifiedUser(fixture, 'other@example.com');
-    const oldTokens = [];
-    for (let i = 0; i < 2; i++) {
-      assert.equal((await post(app, '/request-password-reset', { email: member.user.email })).statusCode, 200);
-      oldTokens.push(mailToken(mail));
-    }
-    assert.equal((await post(app, '/request-password-reset', { email: other.user.email })).statusCode, 200);
-    const otherToken = mailToken(mail);
-    const unrelated = await prisma.verification.create({
-      data: { identifier: 'unrelated-verification', value: member.user.id, expiresAt: new Date(Date.now() + 60000) },
-    });
-    const credential = await prisma.account.findFirst({ where: { userId: member.user.id, providerId: 'credential' } });
-    assert.equal((await post(app, '/change-email', { newEmail: 'changed@example.com' }, member.headers)).statusCode, 200);
-    const verificationToken = mailToken(mail);
-    assert.equal((await prisma.user.findUnique({ where: { id: member.user.id } })).email, member.user.email);
-    for (const token of oldTokens) assert.ok(await prisma.verification.findUnique({ where: { identifier: `reset-password:${token}` } }));
-    // Complete the link without cookies, as when opening it on another device.
-    assert.equal((await app.inject(`/api/auth/verify-email?token=${verificationToken}`)).statusCode, 200);
-    const changed = await prisma.user.findUnique({ where: { id: member.user.id } });
-    assert.equal(changed.email, 'changed@example.com');
-    assert.equal(changed.emailVerified, true);
-    for (const token of oldTokens) {
-      assert.equal((await post(app, '/reset-password', { token, newPassword: `${password}OldMailbox` })).statusCode, 400);
-    }
-    assert.equal((await prisma.account.findUnique({ where: { id: credential.id } })).password, credential.password);
-    assert.ok(await prisma.verification.findUnique({ where: { id: unrelated.id } }));
-    // These are independent recovery flows, not rate-limit coverage.
-    await prisma.rateLimit.deleteMany();
-    assert.equal((await post(app, '/reset-password', { token: otherToken, newPassword: `${password}Other` })).statusCode, 200);
-    assert.equal((await post(app, '/request-password-reset', { email: changed.email })).statusCode, 200);
-    assert.equal((await post(app, '/reset-password', { token: mailToken(mail), newPassword: `${password}Fresh` })).statusCode, 200);
-    assert.equal((await post(app, '/sign-in/email', { email: changed.email, password: `${password}Fresh` })).statusCode, 200);
+  await t.test('native verification tokens expire, reject tampering, and honor callback URLs', async () => {
+    const signup = await signUp(app);
+    assert.equal(signup.statusCode, 200, signup.body);
+    const token = mailToken(mail);
+    const expired = await signJWT({ email: signup.json().user.email }, authSecret, -10);
+    assert.equal((await app.inject(`/api/auth/verify-email?token=${encodeURIComponent(expired)}`)).statusCode, 401);
+    const tampered = `${token.slice(0, -6)}aaaaaa`;
+    assert.equal((await app.inject(`/api/auth/verify-email?token=${encodeURIComponent(tampered)}`)).statusCode, 401);
+    assert.equal((await prisma.user.findUnique({ where: { id: signup.json().user.id } })).emailVerified, false);
+    const callbackURL = 'http://localhost:3333/account';
+    const verification = await app.inject(`/api/auth/verify-email?token=${encodeURIComponent(token)}&callbackURL=${encodeURIComponent(callbackURL)}`);
+    assert.equal(verification.statusCode, 302, verification.body);
+    assert.equal(verification.headers.location, callbackURL);
+    assert.equal((await prisma.user.findUnique({ where: { id: signup.json().user.id } })).emailVerified, true);
   });
 
-  await t.test('reset-token invalidation failure prevents an email change', async () => {
+  await t.test('self-service email changes are unavailable', async () => {
+    const member = await verifiedUser(fixture);
+    const response = await post(app, '/change-email', { newEmail: 'changed@example.com' }, member.headers);
+    assert.equal(response.statusCode, 400, response.body);
+    assert.equal((await prisma.user.findUnique({ where: { id: member.user.id } })).email, member.user.email);
+    assert.equal((await post(app, '/update-user', { email: 'changed@example.com' }, member.headers)).statusCode, 404);
+  });
+
+  for (const { name, changePassword } of [
+    {
+      name: 'authenticated password changes',
+      changePassword: (member) => post(app, '/change-password', { currentPassword: password, newPassword: `${password}New` }, member.headers),
+    },
+    {
+      name: 'password resets',
+      changePassword: async (member, tokens) => post(app, '/reset-password', { token: tokens.shift(), newPassword: `${password}New` }),
+    },
+    {
+      name: 'admin password changes',
+      changePassword: async (member) => {
+        const admin = await verifiedAdmin(fixture);
+        return post(app, '/admin/set-user-password', { userId: member.user.id, newPassword: `${password}New` }, admin.headers);
+      },
+    },
+  ]) {
+    await t.test(`${name} leave unused reset links to Better Auth's native lifecycle`, async () => {
+      const member = await verifiedUser(fixture);
+      const tokens = [];
+      for (let i = 0; i < 2; i++) {
+        assert.equal((await post(app, '/request-password-reset', { email: member.user.email })).statusCode, 200);
+        tokens.push(mailToken(mail));
+      }
+      const response = await changePassword(member, tokens);
+      assert.equal(response.statusCode, 200, response.body);
+      const token = tokens.at(-1);
+      const reset = () => post(app, '/reset-password', { token, newPassword: `${password}Fresh` });
+      assert.equal((await reset()).statusCode, 200);
+      assert.equal((await reset()).statusCode, 400);
+      assert.equal((await post(app, '/sign-in/email', { email: member.user.email, password: `${password}Fresh` })).statusCode, 200);
+    });
+  }
+
+  await t.test('unauthorized password-change attempts do not invalidate reset links', async () => {
     const member = await verifiedUser(fixture);
     assert.equal((await post(app, '/request-password-reset', { email: member.user.email })).statusCode, 200);
     const resetToken = mailToken(mail);
-    assert.equal((await post(app, '/change-email', { newEmail: 'changed@example.com' }, member.headers)).statusCode, 200);
-    const verificationToken = mailToken(mail);
-    const { adapter } = await auth.$context;
-    const deleteMany = adapter.deleteMany.bind(adapter);
-    const deletion = t.mock.method(adapter, 'deleteMany', async options => {
-      if (options.model === 'verification' && options.where.some(({ field, value }) => field === 'identifier' && value === 'reset-password:')) {
-        throw new Error('Simulated reset-token deletion failure');
-      }
-      return deleteMany(options);
-    });
-    try {
-      assert.equal((await app.inject(`/api/auth/verify-email?token=${verificationToken}`)).statusCode, 500);
-      assert.equal((await prisma.user.findUnique({ where: { id: member.user.id } })).email, member.user.email);
-      assert.ok(await prisma.verification.findUnique({ where: { identifier: `reset-password:${resetToken}` } }));
-    } finally {
-      deletion.mock.restore();
-    }
-    assert.equal((await app.inject(`/api/auth/verify-email?token=${verificationToken}`)).statusCode, 200);
-    assert.equal(await prisma.verification.findUnique({ where: { identifier: `reset-password:${resetToken}` } }), null);
+    assert.equal((await post(app, '/change-password', { currentPassword: password, newPassword: `${password}New` })).statusCode, 401);
+    assert.equal((await post(app, '/change-password', {
+      currentPassword: 'WrongPassword123!',
+      newPassword: `${password}New`,
+    }, member.headers)).statusCode, 400);
+    assert.ok(await prisma.verification.findUnique({ where: { identifier: `reset-password:${resetToken}` } }));
+    assert.equal((await post(app, '/reset-password', { token: resetToken, newPassword: `${password}Fresh` })).statusCode, 200);
   });
 
   await t.test('invalid invitations return the same error for existing and unknown emails', async () => {
