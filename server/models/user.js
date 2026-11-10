@@ -1,9 +1,6 @@
-import bcrypt from 'bcrypt';
-import crypto from 'crypto';
 import { z } from 'zod';
 
 import Base from './base.js';
-import mailer from '#lib/mailer.js';
 import { Prisma } from '#prisma/client.js';
 
 const UserAttributesSchema = z.object({
@@ -18,12 +15,7 @@ const UserAttributesSchema = z.object({
   email: z.string().email('Please enter a valid email address.'),
 });
 
-const UserPasswordSchema = z
-  .string()
-  .min(8, 'Password must be at least 8 characters long');
-
 const UserRegisterSchema = UserAttributesSchema.extend({
-  password: UserPasswordSchema,
   inviteId: z.string().uuid().optional(),
 });
 
@@ -34,18 +26,14 @@ const UserResponseSchema = UserAttributesSchema.extend({
   isAdmin: z.boolean(),
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
-  deactivatedAt: z.coerce.date().nullable(),
+  banned: z.boolean(),
 });
 
-const UserUpdateSchema = UserAttributesSchema.extend({
-  password: UserPasswordSchema.or(z.literal('')),
+const UserUpdateSchema = UserAttributesSchema.pick({ firstName: true, lastName: true }).extend({
   picture: z.string().nullable(),
-  isAdmin: z.boolean(),
-  deactivatedAt: z.coerce.date().nullable(),
-}).partial();
+}).partial().strict();
 
 export class User extends Base {
-  static PasswordSchema = UserPasswordSchema;
   static RegisterSchema = UserRegisterSchema;
   static ResponseSchema = UserResponseSchema;
   static UpdateSchema = UserUpdateSchema;
@@ -58,45 +46,16 @@ export class User extends Base {
     return this.getAssetUrl('picture');
   }
 
+  get isAdmin () {
+    return this.role?.split(',').includes('admin') ?? false;
+  }
+
   get isActive () {
-    return !this.deactivatedAt;
+    return this.emailVerified && !this.banned;
   }
 
-  get isPasswordResetTokenValid () {
-    return new Date() <= new Date(this.passwordResetExpiresAt);
-  }
-
-  get fullNameAndEmail () {
-    return `${this.firstName} ${this.lastName} <${this.email}>`
-      .trim()
-      .replace(/ {2,}/g, ' ');
-  }
-
-  generatePasswordResetToken () {
-    this.passwordResetToken = crypto.randomUUID();
-  }
-
-  async sendPasswordResetEmail () {
-    const { firstName } = this;
-    const url = `${process.env.BASE_URL}/passwords/reset/${this.passwordResetToken}`;
-    return mailer.send({
-      message: {
-        to: this.fullNameAndEmail,
-      },
-      template: 'password-reset',
-      locals: {
-        firstName,
-        url,
-      },
-    });
-  }
-
-  async setPassword (password) {
-    this.hashedPassword = await bcrypt.hash(password, 10);
-  }
-
-  async comparePassword (password) {
-    return bcrypt.compare(password, this.hashedPassword);
+  toJSON () {
+    return UserResponseSchema.parse(this);
   }
 }
 

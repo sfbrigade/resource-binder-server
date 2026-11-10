@@ -6,7 +6,8 @@ import { authenticate, build, nodemailerMock } from '#test/helper.js';
 
 test('/api/invites', async (t) => {
   const app = await build(t);
-  const adminHeaders = await authenticate(app, 'admin.user@test.com', 'test');
+  let adminHeaders;
+  t.beforeEach(async () => { adminHeaders = await authenticate(app, 'admin.user@test.com', 'test'); });
   const { prisma } = app;
 
   await t.test('GET /', async (t) => {
@@ -22,6 +23,12 @@ test('/api/invites', async (t) => {
 
   await t.test('POST /', async (t) => {
     await t.test('creates a new Invite', async (t) => {
+      const previousLinkOrigin = process.env.AUTH_LINK_BASE_URL;
+      process.env.AUTH_LINK_BASE_URL = 'https://links.example.com/';
+      t.after(() => {
+        if (previousLinkOrigin === undefined) delete process.env.AUTH_LINK_BASE_URL;
+        else process.env.AUTH_LINK_BASE_URL = previousLinkOrigin;
+      });
       const response = await app.inject().post('/api/invites').payload({
         firstName: 'John',
         lastName: 'Doe',
@@ -50,6 +57,61 @@ test('/api/invites', async (t) => {
       assert.ok(mail.html.includes(data.id));
       assert.ok(mail.text.includes('Welcome!'));
       assert.ok(mail.text.includes(data.id));
+      for (const body of [mail.html, mail.text]) {
+        assert.ok(body.includes(`https://links.example.com/api/auth/links/invite?inviteId=${data.id}`));
+      }
+    });
+
+    for (const [omitted, attributes] of [
+      ['message', { lastName: 'Doe' }],
+      ['lastName', { message: 'Welcome!' }],
+      ['lastName and message', {}],
+    ]) {
+      await t.test(`handles omitted ${omitted} throughout the invitation lifecycle`, async () => {
+        const email = 'optional.invite@test.com';
+        const response = await app.inject().post('/api/invites').headers(adminHeaders)
+          .payload({ firstName: 'John', email, ...attributes });
+        assert.strictEqual(response.statusCode, StatusCodes.CREATED, response.body);
+        const { id } = response.json();
+        const checkOptionalFields = (data) => {
+          assert.strictEqual(data.lastName, attributes.lastName ?? null);
+          assert.strictEqual(data.message, attributes.message ?? null);
+        };
+        checkOptionalFields(response.json());
+        checkOptionalFields(await prisma.invite.findUnique({ where: { id } }));
+        assert.strictEqual(await prisma.invite.count({ where: { email } }), 1);
+        assert.strictEqual(nodemailerMock.mock.getSentMail().length, 1);
+
+        const detail = await app.inject().get(`/api/invites/${id}`);
+        assert.strictEqual(detail.statusCode, StatusCodes.OK, detail.body);
+        checkOptionalFields(detail.json());
+
+        const list = await app.inject().get('/api/invites').headers(adminHeaders);
+        assert.strictEqual(list.statusCode, StatusCodes.OK, list.body);
+        checkOptionalFields(list.json().find(invite => invite.id === id));
+
+        const resend = await app.inject().patch(`/api/invites/${id}/resend`).headers(adminHeaders);
+        assert.strictEqual(resend.statusCode, StatusCodes.OK, resend.body);
+        checkOptionalFields(resend.json());
+        assert.strictEqual(nodemailerMock.mock.getSentMail().length, 2);
+
+        const revoke = await app.inject().delete(`/api/invites/${id}`).headers(adminHeaders);
+        assert.strictEqual(revoke.statusCode, StatusCodes.OK, revoke.body);
+        checkOptionalFields(revoke.json());
+        assert.ok(revoke.json().revokedAt);
+        assert.strictEqual((await app.inject().get(`/api/invites/${id}`)).statusCode, StatusCodes.GONE);
+      });
+    }
+
+    await t.test('rejects null or invalid supplied optional fields before creating an invitation', async () => {
+      const email = 'invalid.invite@test.com';
+      for (const attributes of [{ lastName: 'A' }, { lastName: null }, { message: null }]) {
+        const response = await app.inject().post('/api/invites').headers(adminHeaders)
+          .payload({ firstName: 'John', email, ...attributes });
+        assert.strictEqual(response.statusCode, StatusCodes.UNPROCESSABLE_ENTITY, response.body);
+      }
+      assert.strictEqual(await prisma.invite.count({ where: { email } }), 0);
+      assert.strictEqual(nodemailerMock.mock.getSentMail().length, 0);
     });
   });
 

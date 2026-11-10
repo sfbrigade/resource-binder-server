@@ -18,6 +18,7 @@ function Login () {
   const queryClient = useQueryClient();
 
   const from = location.state?.from || searchParams.get('from') || '/';
+  const flash = location.state?.flash || (searchParams.get('passwordReset') === 'success' ? 'Your new password has been saved.' : null);
 
   useEffect(() => {
     if (authContext.user) {
@@ -44,6 +45,11 @@ function Login () {
     onSettled: () => window.scrollTo({ top: 0, behavior: 'smooth' }),
   });
 
+  const verificationMutation = useMutation({
+    mutationFn: () => Api.auth.sendVerificationEmail(form.getValues().email),
+    onError: (errors) => form.setErrors(errors),
+  });
+
   return (
     <>
       <Head>
@@ -54,8 +60,14 @@ function Login () {
         <form onSubmit={form.onSubmit(onSubmitMutation.mutateAsync)}>
           <Fieldset disabled={onSubmitMutation.isPending} variant='unstyled'>
             <Stack w={{ base: '100%', xs: 320 }}>
-              {location.state?.flash && <Alert>{location.state?.flash}</Alert>}
+              {flash && <Alert>{flash}</Alert>}
               {form.errors._form && <Alert color='red'>{form.errors._form}</Alert>}
+              {form.errors._code === 'EMAIL_NOT_VERIFIED' && (
+                <Button variant='light' loading={verificationMutation.isPending} onClick={() => verificationMutation.mutate()}>
+                  Resend verification email
+                </Button>
+              )}
+              {verificationMutation.isSuccess && <Alert>Please check your email for a verification link.</Alert>}
               <TextInput
                 {...form.getInputProps('email')}
                 key={form.key('email')}

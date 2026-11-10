@@ -20,7 +20,7 @@ function ForgotPassword () {
 
   const onSubmitMutation = useMutation({
     mutationFn: (values) => Api.passwords.reset(values.email),
-    onSuccess: () => navigate('/login', { state: { flash: 'Please check your email in a few minutes for a reset password link.' } }),
+    onSuccess: () => navigate('/login', { state: { flash: 'If an account exists for that email, you will receive a password reset link shortly.' } }),
     onError: (errors) => form.setErrors(errors),
     onSettled: () => window.scrollTo({ top: 0, behavior: 'smooth' }),
   });

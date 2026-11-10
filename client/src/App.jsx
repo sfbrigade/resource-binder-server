@@ -16,6 +16,7 @@ import AppTheme from './AppTheme';
 import Header from './Header';
 import Home from './Home';
 import Login from './Login';
+import EmailLink from './EmailLink';
 import InvitesRoutes from './Invites/InvitesRoutes';
 import PasswordsRoutes from './Passwords/PasswordsRoutes';
 import Register from './Register';
@@ -55,6 +56,8 @@ function App () {
                         <Routes>
                           <Route path='/' element={<Home />} />
                           <Route path='/login' element={<Login />} />
+                          <Route path='/auth/verify-email' element={<EmailLink key='verify-email' action='verify-email' />} />
+                          <Route path='/auth/magic-link' element={<EmailLink key='magic-link' action='magic-link' />} />
                           <Route path='/passwords/*' element={<PasswordsRoutes />} />
                           <Route path='/invites/*' element={<InvitesRoutes />} />
                           {staticContext?.env?.VITE_FEATURE_REGISTRATION === 'true' && <Route path='/register' element={<Register />} />}
